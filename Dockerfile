@@ -23,9 +23,6 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
-# Install Playwright browsers (cached in separate layers)
-RUN playwright install chromium
-
 # Install Playwright system dependencies with workaround for obsolete packages
 # Replace obsolete ttf-* packages with fonts-* equivalents
 RUN apt-get update && \
@@ -54,6 +51,11 @@ RUN apt-get update && \
     libxrandr2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright browsers AFTER system dependencies (cached in separate layers)
+# Set the browsers path before installing
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install chromium
 
 # Stage 3: Final runtime image
 FROM dependencies AS runtime
