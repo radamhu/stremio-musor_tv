@@ -2,15 +2,6 @@
 
 A **Stremio addon** that provides real-time catalogs of movies currently airing or scheduled to air on Hungarian TV channels by scraping TV listings from [musor.tv](https://musor.tv).
 
-## 📢 Recent Updates
-
-### ✅ Midnight Boundary Fix (Oct 18, 2025)
-Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when scraped in the evening. The time parser now uses a 12-hour threshold to detect midnight boundary crossings, ensuring programs after midnight appear in the correct time windows.
-
-**Impact:** Users browsing at 23:00 will now correctly see movies scheduled for 01:00 as "upcoming" rather than "22 hours ago".
-
-📖 **Documentation:** [MIDNIGHT_BOUNDARY_FIX.md](docs/MIDNIGHT_BOUNDARY_FIX.md) | [IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)
-
 ## 🎯 Purpose
 
 This addon integrates with the Stremio media center to allow users to:
@@ -20,6 +11,18 @@ This addon integrates with the Stremio media center to allow users to:
 - View movie metadata including start times, channels, genres, and posters
 
 The addon exposes HTTP/JSON endpoints that comply with the Stremio addon protocol, making Hungarian live TV content discoverable within the Stremio interface.
+
+## 📢 Recent Updates
+
+![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)
+![CI](https://github.com/radamhu/stremio-musor_tv/workflows/CI%20-%20Tests%20and%20Linting/badge.svg)
+
+### ✅ Midnight Boundary Fix (Oct 18, 2025)
+Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when scraped in the evening. The time parser now uses a 12-hour threshold to detect midnight boundary crossings, ensuring programs after midnight appear in the correct time windows.
+
+**Impact:** Users browsing at 23:00 will now correctly see movies scheduled for 01:00 as "upcoming" rather than "22 hours ago".
+
+📖 **Documentation:** [MIDNIGHT_BOUNDARY_FIX.md](docs/MIDNIGHT_BOUNDARY_FIX.md) | [IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)
 
 ## 🏗️ Architecture Diagram
 
@@ -371,9 +374,6 @@ curl http://localhost:7000/catalog/movie/hu-live.json?time=tonight&search=horror
 - [Copilot Instructions](/.github/instructions/copilot-instructions.md) - Development guidelines
 - [Code Analysis Prompt](/docs/CODE_ANALYSIS_PROMPT.md) - Analysis methodology
 
-
-![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)
-![CI](https://github.com/radamhu/stremio-musor_tv/workflows/CI%20-%20Tests%20and%20Linting/badge.svg)
 
 ## 📄 License
 

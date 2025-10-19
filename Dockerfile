@@ -25,7 +25,34 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Install Playwright browsers (cached in separate layers)
 RUN playwright install chromium
-RUN playwright install-deps chromium
+
+# Install Playwright system dependencies with workaround for obsolete packages
+# Replace obsolete ttf-* packages with fonts-* equivalents
+RUN apt-get update && \
+    apt-get install -y fonts-unifont fonts-ubuntu || true && \
+    playwright install-deps chromium || apt-get install -y \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libglib2.0-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libx11-6 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Stage 3: Final runtime image
 FROM dependencies AS runtime
