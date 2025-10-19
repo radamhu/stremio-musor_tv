@@ -3,6 +3,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from manifest import MANIFEST
 from catalog_handler import catalog_handler
@@ -53,6 +54,15 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app with lifecycle management
 app = FastAPI(title="Stremio HU Live Movies", lifespan=lifespan)
+
+# Add CORS middleware to allow requests from Stremio clients
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for Stremio compatibility
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
 
 
 @app.get("/")
