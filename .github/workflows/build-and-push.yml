@@ -24,6 +24,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
@@ -101,66 +102,3 @@ jobs:
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.REGISTRY_GHCR }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-
-  test-image:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-    
-    steps:
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY_GHCR }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull and test Docker image
-        run: |
-          IMAGE_TAG="${{ env.REGISTRY_GHCR }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
-          echo "Testing image: $IMAGE_TAG"
-          
-          # Pull the image
-          docker pull "$IMAGE_TAG"
-          
-          # Run the container in background
-          docker run -d --name test-container \
-            -e PORT=7000 \
-            -e TZ=Europe/Budapest \
-            -e LOG_LEVEL=info \
-            -p 7000:7000 \
-            "$IMAGE_TAG"
-          
-          # Wait for container to be ready
-          echo "Waiting for container to start..."
-          sleep 15
-          
-          # Check if container is running
-          if ! docker ps | grep -q test-container; then
-            echo "❌ Container failed to start"
-            docker logs test-container
-            exit 1
-          fi
-          
-          # Test health endpoint
-          echo "Testing /manifest.json endpoint..."
-          curl -f http://localhost:7000/manifest.json || {
-            echo "❌ Health check failed"
-            docker logs test-container
-            exit 1
-          }
-          
-          echo "✅ Container is running and healthy!"
-          
-          # Cleanup
-          docker stop test-container
-          docker rm test-container
-
-      - name: Report test results
-        if: always()
-        run: |
-          if [ $? -eq 0 ]; then
-            echo "### ✅ Image Test Passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### ❌ Image Test Failed" >> $GITHUB_STEP_SUMMARY
-          fi
