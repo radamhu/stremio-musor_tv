@@ -70,6 +70,9 @@ ENV LOG_LEVEL=info
 ENV CACHE_TTL_MIN=10
 ENV SCRAPE_RATE_MS=30000
 ENV TZ=Europe/Budapest
+# Playwright optimizations for limited resources
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV NODE_OPTIONS="--max-old-space-size=512"
 
 # Run the application with uvicorn directly (production-ready)
 # Use sh -c to allow environment variable expansion in CMD

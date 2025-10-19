@@ -15,4 +15,9 @@ services:
         value: 10
       - key: SCRAPE_RATE_MS
         value: 30000
+      # Playwright optimizations for Render free tier
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /ms-playwright
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=512
     plan: free

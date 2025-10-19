@@ -50,9 +50,35 @@ class MusorTvScraper:
             logger.info("Initializing Playwright browser...")
             pw = await async_playwright().start()
             self._playwright = pw
+            
+            # Optimized browser settings for limited resources (e.g., Render free tier)
             self._browser = await pw.chromium.launch(
-                args=["--no-sandbox"],
-                headless=True
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",  # Overcome limited /dev/shm space
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-breakpad",
+                    "--disable-component-extensions-with-background-pages",
+                    "--disable-features=TranslateUI,BlinkGenPropertyTrees",
+                    "--disable-ipc-flooding-protection",
+                    "--disable-renderer-backgrounding",
+                    "--enable-features=NetworkService,NetworkServiceInProcess",
+                    "--force-color-profile=srgb",
+                    "--hide-scrollbars",
+                    "--metrics-recording-only",
+                    "--mute-audio",
+                    "--no-first-run",
+                    "--disable-sync",
+                    "--disable-default-apps"
+                ],
+                headless=True,
+                timeout=60000  # Increased timeout for slow environments
             )
             logger.info("Browser initialized successfully")
     
@@ -135,8 +161,38 @@ class MusorTvScraper:
         for url in PAGES:
             logger.info(f"Scraping {url}")
             page = await self._browser.new_page(user_agent=self._get_user_agent())
+            
+            # Set a longer default timeout for slow environments
+            page.set_default_timeout(90000)  # 90 seconds
+            
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                # Retry logic for page navigation with exponential backoff
+                max_retries = 3
+                retry_delay = 2  # seconds
+                last_error = None
+                
+                for attempt in range(max_retries):
+                    try:
+                        logger.info(f"Loading {url} (attempt {attempt + 1}/{max_retries})")
+                        await page.goto(
+                            url, 
+                            wait_until="domcontentloaded",  # Faster than 'load' or 'networkidle'
+                            timeout=90000  # 90 seconds for slow hosts
+                        )
+                        logger.info(f"Successfully loaded {url}")
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        last_error = e
+                        logger.warning(f"Attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
+                        
+                        if attempt < max_retries - 1:  # Don't sleep on last attempt
+                            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            # All retries failed
+                            logger.error(f"All {max_retries} attempts failed for {url}: {last_error}")
+                            raise
                 
                 # Accept cookie if present
                 await self._safe_click(page, 'button:has-text("Elfogadom"), button:has-text("Accept")')
