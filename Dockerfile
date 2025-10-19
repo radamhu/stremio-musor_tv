@@ -21,7 +21,7 @@ COPY requirements.txt .
 
 # Install Python dependencies with pip cache mount for faster rebuilds
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -r requirements.txt
+    pip install -r requirements.txt
 
 # Install Playwright browsers (cached in separate layers)
 RUN playwright install chromium
