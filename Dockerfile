@@ -71,5 +71,6 @@ ENV CACHE_TTL_MIN=10
 ENV SCRAPE_RATE_MS=30000
 ENV TZ=Europe/Budapest
 
-# Run the application
-CMD ["python", "main.py"]
+# Run the application with uvicorn directly (production-ready)
+# Use sh -c to allow environment variable expansion in CMD
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-7000} --log-level ${LOG_LEVEL:-info}"]
