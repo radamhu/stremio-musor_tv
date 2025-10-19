@@ -371,6 +371,10 @@ curl http://localhost:7000/catalog/movie/hu-live.json?time=tonight&search=horror
 - [Copilot Instructions](/.github/instructions/copilot-instructions.md) - Development guidelines
 - [Code Analysis Prompt](/docs/CODE_ANALYSIS_PROMPT.md) - Analysis methodology
 
-## �📄 License
+
+![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)
+![CI](https://github.com/radamhu/stremio-musor_tv/workflows/CI%20-%20Tests%20and%20Linting/badge.svg)
+
+## 📄 License
 
 Same as the original TypeScript version.
