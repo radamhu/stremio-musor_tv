@@ -1,23 +1,47 @@
-# Build stage
-FROM mcr.microsoft.com/playwright:v1.46.0-jammy AS build
-WORKDIR /app
-COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
-# Use npm by default; swap to pnpm/yarn if you want.
-RUN npm ci
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm run build
+# Python-based Stremio HU Live Movies Addon
+# Multi-stage build with optimized Docker layer caching
 
-# Runtime stage
-FROM mcr.microsoft.com/playwright:v1.46.0-jammy
-ENV NODE_ENV=production \
-    TZ=Europe/Budapest \
-    PORT=7000
+# Stage 1: Base image with system dependencies
+FROM python:3.11-slim AS base
+
 WORKDIR /app
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY package.json ./
+
+# Install system dependencies for Playwright (cached unless apt packages change)
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Dependencies installation
+FROM base AS dependencies
+
+# Copy only requirements file first (cached unless requirements.txt changes)
+COPY requirements.txt .
+
+# Install Python dependencies with pip cache mount for faster rebuilds
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browsers (cached in separate layers)
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
+# Stage 3: Final runtime image
+FROM dependencies AS runtime
+
+# Copy application code (only invalidates cache when source code changes)
+COPY src/ ./
+
+# Expose port
 EXPOSE 7000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://localhost:7000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-CMD ["node", "dist/index.js"]
+
+# Set environment variables
+ENV PORT=7000
+ENV LOG_LEVEL=info
+ENV CACHE_TTL_MIN=10
+ENV SCRAPE_RATE_MS=30000
+ENV TZ=Europe/Budapest
+
+# Run the application
+CMD ["python", "main.py"]

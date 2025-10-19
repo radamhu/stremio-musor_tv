@@ -1,0 +1,142 @@
+"""Main FastAPI application for Stremio HU Live Movies addon."""
+import os
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
+from manifest import MANIFEST
+from catalog_handler import catalog_handler
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.traceback import install as install_rich_traceback
+
+
+# Configuration
+PORT = int(os.getenv("PORT", "7000"))
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
+
+# Setup Rich console and traceback
+console = Console()
+install_rich_traceback(show_locals=True, suppress=[])
+
+# Setup Rich logging
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[
+        RichHandler(
+            console=console,
+            rich_tracebacks=True,
+            tracebacks_show_locals=True,
+            markup=True,
+            show_time=True,
+            show_path=True,
+        )
+    ]
+)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle - startup and shutdown."""
+    # Startup
+    logger.info("Starting Stremio HU Live Movies addon")
+    yield
+    # Shutdown
+    logger.info("Shutting down addon, cleaning up resources...")
+    from scraper import cleanup_scraper
+    await cleanup_scraper()
+    logger.info("Cleanup complete")
+
+
+# Create FastAPI app with lifecycle management
+app = FastAPI(title="Stremio HU Live Movies", lifespan=lifespan)
+
+
+@app.get("/")
+async def root():
+    """Root endpoint - redirect to manifest."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/manifest.json")
+
+
+@app.get("/healthz")
+async def health_check():
+    """Health check endpoint with scraper status."""
+    import time
+    from scraper import get_scraper_status
+    
+    scraper_status = await get_scraper_status()
+    
+    return {
+        "ok": scraper_status.get("healthy", False),
+        "ts": int(time.time() * 1000),
+        "scraper": scraper_status
+    }
+
+
+@app.get("/manifest.json")
+async def get_manifest():
+    """Return Stremio addon manifest."""
+    return JSONResponse(content=MANIFEST)
+
+
+@app.get("/catalog/{type}/{id}.json")
+async def get_catalog(
+    type: str,
+    id: str,
+    search: str = Query(None),
+    time: str = Query(None)
+):
+    """Handle catalog requests."""
+    extra = {}
+    if search:
+        extra["search"] = search
+    if time:
+        extra["time"] = time
+    
+    result = await catalog_handler(type, id, extra)
+    return JSONResponse(content=result)
+
+
+@app.get("/favicon.ico")
+async def get_favicon():
+    """Return a simple favicon to prevent 404 errors."""
+    from fastapi.responses import Response
+    # Return a minimal 1x1 transparent ICO file
+    # This is a base64 decoded minimal ICO format
+    ico_data = (
+        b'\x00\x00\x01\x00\x01\x00\x01\x01\x00\x00\x01\x00\x18\x00'
+        b'(\x00\x00\x00\x16\x00\x00\x00(\x00\x00\x00\x01\x00\x00\x00'
+        b'\x02\x00\x00\x00\x01\x00\x18\x00\x00\x00\x00\x00\x00\x00'
+        b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        b'\x00\x00\x00\x00\xff\xff\xff\x00\x00\x00\x00\x00'
+    )
+    return Response(content=ico_data, media_type="image/x-icon")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    from rich.panel import Panel
+    
+    # Display startup banner with Rich
+    console.print(Panel.fit(
+        f"[bold cyan]Stremio HU Live Movies Addon[/bold cyan]\n"
+        f"[green]Port:[/green] {PORT}\n"
+        f"[green]Log Level:[/green] {LOG_LEVEL}\n"
+        f"[green]Cache TTL:[/green] {os.getenv('CACHE_TTL_MIN', '10')} min\n"
+        f"[green]Scrape Rate:[/green] {os.getenv('SCRAPE_RATE_MS', '30000')} ms",
+        title="🎬 Starting Server",
+        border_style="cyan"
+    ))
+    
+    logger.info(f"Starting addon on port {PORT}")
+    uvicorn.run(
+        "main:app",  # Import string for auto-reload
+        host="0.0.0.0",
+        port=PORT,
+        log_level=LOG_LEVEL.lower(),
+        reload=True  # Auto-reload on code changes
+    )

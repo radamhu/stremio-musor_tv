@@ -1,12 +1,47 @@
+version: '3.8'
+
 services:
-  addon:
-    build: .
+  # Python version with BuildKit caching support
+  addon-python:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Enable BuildKit for layer caching
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+      cache_from:
+        - stremio-musor-tv:latest
+    image: stremio-musor-tv:latest
+    container_name: stremio-musor-tv
     environment:
       - TZ=Europe/Budapest
       - PORT=7000
       - CACHE_TTL_MIN=10
       - SCRAPE_RATE_MS=30000
       - LOG_LEVEL=info
+      - PYTHONUNBUFFERED=1  # Enable real-time logging
     ports:
       - "7000:7000"
     restart: unless-stopped
+    # Resource limits (optional but recommended)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7000/manifest.json')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Logging configuration for rich output
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
