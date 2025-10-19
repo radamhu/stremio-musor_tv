@@ -101,14 +101,22 @@ async def get_catalog(
     time: str = Query(None)
 ):
     """Handle catalog requests."""
-    extra = {}
-    if search:
-        extra["search"] = search
-    if time:
-        extra["time"] = time
-    
-    result = await catalog_handler(type, id, extra)
-    return JSONResponse(content=result)
+    try:
+        extra = {}
+        if search:
+            extra["search"] = search
+        if time:
+            extra["time"] = time
+        
+        result = await catalog_handler(type, id, extra)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error in catalog handler: {e}", exc_info=True)
+        # Return empty catalog instead of 500 error
+        return JSONResponse(
+            content={"metas": []},
+            status_code=200  # Return 200 with empty results for better UX
+        )
 
 
 @app.get("/favicon.ico")

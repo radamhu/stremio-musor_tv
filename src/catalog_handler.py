@@ -33,33 +33,38 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
     
     if not metas:
         logger.info("Cache miss, fetching live movies...")
-        raw = await fetch_live_movies(False)
-        logger.info(f"Fetched {len(raw)} raw items from scraper")
-        
-        filtered = [
-            r for r in raw
-            if is_probably_film(r.category) and within_window(r.start_iso, time_window)
-        ]
-        logger.info(f"Filtered to {len(filtered)} movies in time window")
-        
-        metas = []
-        for r in filtered:
-            start_time = datetime.fromisoformat(r.start_iso.replace("Z", "+00:00"))
-            timestamp = int(start_time.timestamp())
-            meta_id = f"musortv:{slugify(r.channel)}:{timestamp}:{slugify(r.title)}"
-            genres = _parse_genres(r.category)
+        try:
+            raw = await fetch_live_movies(False)
+            logger.info(f"Fetched {len(raw)} raw items from scraper")
             
-            metas.append(StremioMetaPreview(
-                id=meta_id,
-                type="movie",
-                name=r.title,
-                release_info=f"{_fmt_time(r.start_iso)} • {r.channel}",
-                poster=r.poster,
-                genres=genres
-            ))
-        
-        logger.info(f"Created {len(metas)} meta previews")
-        _cache.set(cache_key, metas)
+            filtered = [
+                r for r in raw
+                if is_probably_film(r.category) and within_window(r.start_iso, time_window)
+            ]
+            logger.info(f"Filtered to {len(filtered)} movies in time window")
+            
+            metas = []
+            for r in filtered:
+                start_time = datetime.fromisoformat(r.start_iso.replace("Z", "+00:00"))
+                timestamp = int(start_time.timestamp())
+                meta_id = f"musortv:{slugify(r.channel)}:{timestamp}:{slugify(r.title)}"
+                genres = _parse_genres(r.category)
+                
+                metas.append(StremioMetaPreview(
+                    id=meta_id,
+                    type="movie",
+                    name=r.title,
+                    release_info=f"{_fmt_time(r.start_iso)} • {r.channel}",
+                    poster=r.poster,
+                    genres=genres
+                ))
+            
+            logger.info(f"Created {len(metas)} meta previews")
+            _cache.set(cache_key, metas)
+        except Exception as e:
+            logger.error(f"Failed to fetch and process movies: {e}", exc_info=True)
+            # Return empty list on scraper failure
+            metas = []
     else:
         logger.info(f"Cache hit, returning {len(metas)} metas")
     
