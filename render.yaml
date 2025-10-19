@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: stremio-musor-tv
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: PORT
+        value: 7000
+      - key: TZ
+        value: Europe/Budapest
+      - key: LOG_LEVEL
+        value: info
+      - key: CACHE_TTL_MIN
+        value: 10
+      - key: SCRAPE_RATE_MS
+        value: 30000
+    plan: free

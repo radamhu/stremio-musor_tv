@@ -227,6 +227,23 @@ docker-compose down
 
 The containerized addon will be available at `http://localhost:7000`
 
+### Cloud Deployment (Render)
+
+For production deployment on Render.com:
+
+```bash
+# See detailed deployment guide
+📖 docs/RENDER_DEPLOYMENT.md
+```
+
+Quick steps:
+1. Push repository to GitHub/GitLab
+2. Connect to Render Blueprint
+3. Render auto-detects `render.yaml` and builds Docker image
+4. Your addon will be at: `https://your-app.onrender.com`
+
+**Note:** Make sure Render is configured to use **Docker runtime** (not Python) so Playwright browsers are properly installed.
+
 ## ⚙️ Configuration
 
 ### Environment Variables
