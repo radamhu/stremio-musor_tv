@@ -121,23 +121,32 @@ async def get_catalog(
 
 @app.get("/stream/{type}/{id}.json")
 async def get_stream(type: str, id: str):
-    """Handle stream requests.
+    """Handle stream requests - catalog addon design.
     
-    This addon provides catalog/discovery for Hungarian live TV movies,
-    but does not provide actual stream URLs. Returns empty streams array
-    to indicate the content exists but no streams are available from this addon.
+    This is a CATALOG/DISCOVERY addon that shows what's on Hungarian TV.
+    It does NOT provide streams - that's the job of stream provider addons
+    (like Torrentio, Cinemeta, etc.) that users install separately.
     
-    Users should use other addons or methods to watch the content on their TV.
+    Benefits of this design:
+    - Separation of concerns (discovery vs. streaming)
+    - Users choose their preferred stream sources
+    - No legal liability for stream URLs
+    - Works with any stream provider addon
+    - Follows Stremio's modular architecture
+    
+    This endpoint returns empty streams to indicate:
+    "Content exists in catalog, but use your stream addons to watch it"
     """
-    logger.info(f"Stream request for {type}/{id}")
+    logger.debug(f"Stream request for {type}/{id} (catalog-only addon)")
     
-    # Validate that this is one of our IDs (format: musortv:channel:timestamp:title)
-    if not id.startswith("musortv:"):
-        logger.warning(f"Invalid stream ID format: {id}")
-        return JSONResponse(content={"streams": []})
+    # Validate musortv ID format
+    if id.startswith("musortv:"):
+        # This is our catalog item - let stream addons handle it
+        return JSONResponse(content={
+            "streams": []
+        })
     
-    # This is a valid catalog item from our addon, but we don't provide streams
-    # Return empty array to indicate "no streams available" (not an error)
+    # Not our ID - ignore
     return JSONResponse(content={"streams": []})
 
 

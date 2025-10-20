@@ -50,13 +50,20 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
                 meta_id = f"musortv:{slugify(r.channel)}:{timestamp}:{slugify(r.title)}"
                 genres = _parse_genres(r.category)
                 
+                # Enhanced description for better context
+                time_str = _fmt_time(r.start_iso)
+                description = f"📺 {r.channel} • {time_str}"
+                if r.category:
+                    description += f" • {r.category}"
+                
                 metas.append(StremioMetaPreview(
                     id=meta_id,
                     type="movie",
                     name=r.title,
-                    release_info=f"{_fmt_time(r.start_iso)} • {r.channel}",
+                    release_info=f"{time_str} • {r.channel}",
                     poster=r.poster,
-                    genres=genres
+                    genres=genres,
+                    description=description
                 ))
             
             logger.info(f"Created {len(metas)} meta previews")

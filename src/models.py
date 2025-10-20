@@ -19,6 +19,7 @@ class LiveMovieRaw(BaseModel):
     channel: str
     category: Optional[str] = None
     poster: Optional[str] = None
+    # Note: stream_url removed - catalog addons don't provide streams
 
 
 class StremioMetaPreview(BaseModel):
@@ -30,3 +31,7 @@ class StremioMetaPreview(BaseModel):
     poster: Optional[str] = None
     background: Optional[str] = None
     genres: Optional[List[str]] = None
+    description: Optional[str] = None  # Enhanced: Include channel and time info
+    
+    # Note: stream_url removed - this is a catalog addon
+    # Stream provider addons will provide the actual streams

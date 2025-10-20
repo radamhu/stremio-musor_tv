@@ -1,14 +1,17 @@
 # Stremio HU Live Movies Addon
 
-A **Stremio addon** that provides real-time catalogs of movies currently airing or scheduled to air on Hungarian TV channels by scraping TV listings from [musor.tv](https://musor.tv).
+A **Stremio addon** that provides real-time catalogs of movies currently airing or scheduled to air on Hungarian TV channels by scraping TV listings from [musor.tv](https://musor.tv) and streaming them via configurable live stream URLs.
 
 ## 🎯 Purpose
 
 This addon integrates with the Stremio media center to allow users to:
-- Browse movies currently playing on Hungarian TV
-- Search for specific titles (with accent-insensitive Hungarian text support)
+- **Discover** movies currently playing on Hungarian TV
 - Filter by time windows (now playing, next 2 hours, tonight)
+- Search for specific titles (with accent-insensitive Hungarian text support)
 - View movie metadata including start times, channels, genres, and posters
+- **Works with your stream provider addons** (Torrentio, etc.) for actual playback
+
+**This is a CATALOG addon** - it tells you what's on TV. Install stream provider addons separately to watch the content.
 
 The addon exposes HTTP/JSON endpoints that comply with the Stremio addon protocol, making Hungarian live TV content discoverable within the Stremio interface.
 
@@ -16,18 +19,26 @@ The addon exposes HTTP/JSON endpoints that comply with the Stremio addon protoco
 
 ![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)
 
+### ✅ Proper Catalog Addon Design (Oct 20, 2025)
+**Architecture Update**: Clarified that this is a **catalog/discovery addon** following Stremio's separation of concerns principle.
 
-### ✅ Stream Endpoint Fix (Oct 20, 2025)
-Fixed the "No streams found" error by implementing the required `/stream` endpoint and updating the manifest. This addon is a **catalog-only/discovery addon** that shows what movies are currently on Hungarian TV, but does not provide actual stream URLs.
+**Design Philosophy:**
+- **Catalog addons** (like this one) = Show what's available
+- **Stream provider addons** (Torrentio, etc.) = Provide streams
 
-**What changed:**
-- Added `/stream/{type}/{id}.json` endpoint that returns `{"streams": []}`
-- Updated manifest to declare `"resources": ["catalog", "stream"]`
-- Proper Stremio protocol compliance for catalog-only addons
+**What this means:**
+- This addon shows Hungarian TV movie schedules
+- Users install separate stream provider addons for playback
+- No stream URL configuration needed
+- Modular, flexible, follows Stremio best practices
+- No legal liability for streaming
 
-**Impact:** The addon now works correctly in Stremio without showing error messages. Users can browse the catalog and see what's on TV, then watch via their actual TV or other streaming sources.
-
-📖 **Documentation:** [STREAM_ENDPOINT_FIX.md](docs/STREAM_ENDPOINT_FIX.md)
+**Benefits:**
+- ✅ Works with ANY stream provider addon you have installed
+- ✅ No need to configure stream URLs
+- ✅ Simpler, more maintainable code
+- ✅ Better separation of concerns
+- ✅ Follows Stremio's official addon architecture
 
 ### ✅ Midnight Boundary Fix (Oct 18, 2025)
 Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when scraped in the evening. The time parser now uses a 12-hour threshold to detect midnight boundary crossings, ensuring programs after midnight appear in the correct time windows.
@@ -54,7 +65,9 @@ Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when 
 │  │ /manifest  │  │  /catalog    │  │   /stream    │           │
 │  │   .json    │  │  /{type}/{id}│  │  /{type}/{id}│           │
 │  └────────────┘  └──────┬───────┘  └──────────────┘           │
-│                          │           (returns empty streams)     │
+│                          │           (returns empty - catalog  │
+│                          │            addon, not stream        │
+│                          │            provider)                │
 │                          │           ┌──────────────┐           │
 │                          │           │   /healthz   │           │
 │                          │           └──────────────┘           │

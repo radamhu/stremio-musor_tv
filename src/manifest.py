@@ -4,7 +4,7 @@ MANIFEST = {
     "id": "hu.live.movies",
     "version": "1.0.0",
     "name": "HU Live Movies (musor.tv)",
-    "description": "Catalog: movies on Hungarian TV now/soon",
+    "description": "Discover movies on Hungarian TV • Works with your stream addons",
     "logo": "https://stremio-logo.svg",  # replace if you have one
     "behaviorHints": {"configurable": False},
     "resources": ["catalog", "stream"],
