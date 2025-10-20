@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from manifest import MANIFEST
 from catalog_handler import catalog_handler
+from meta_handler import meta_handler
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.traceback import install as install_rich_traceback
@@ -120,6 +121,33 @@ async def get_catalog(
         )
 
 
+@app.get("/meta/{type}/{id}.json")
+async def get_meta(type: str, id: str):
+    """Handle meta requests - provide detailed movie information.
+    
+    This endpoint returns rich metadata about a specific movie,
+    including description, genres, broadcast time, and channel info.
+    """
+    # Decode the ID (in case of URL encoding)
+    raw_id = id
+    id = unquote(id)
+    if id != raw_id:
+        logger.debug(f"Decoded meta id from '{raw_id}' to '{id}'")
+    
+    logger.info(f"Meta request for {type}/{id}")
+    
+    try:
+        result = await meta_handler(type, id)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error in meta handler: {e}", exc_info=True)
+        # Return empty meta instead of 500 error
+        return JSONResponse(
+            content={"meta": None},
+            status_code=200  # Return 200 with null meta for better UX
+        )
+
+
 @app.get("/stream/{type}/{id}.json")
 async def get_stream(type: str, id: str):
     """Handle stream requests - catalog addon design.
@@ -144,6 +172,8 @@ async def get_stream(type: str, id: str):
     id = unquote(id)
     if id != raw_id:
         logger.debug(f"Decoded stream id from '{raw_id}' to '{id}'")
+    
+    # Log with decoded ID for clarity
     logger.info(f"Stream request for {type}/{id} (catalog-only addon)")
     
     # Validate musortv ID format

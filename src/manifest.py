@@ -7,7 +7,7 @@ MANIFEST = {
     "description": "Discover movies on Hungarian TV • Works with your stream addons",
     "logo": "https://stremio-logo.svg",  # replace if you have one
     "behaviorHints": {"configurable": False},
-    "resources": ["catalog", "stream"],
+    "resources": ["catalog", "meta", "stream"],
     "types": ["movie"],
     "catalogs": [{
         "type": "movie",
