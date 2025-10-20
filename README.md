@@ -17,6 +17,18 @@ The addon exposes HTTP/JSON endpoints that comply with the Stremio addon protoco
 ![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)
 ![CI](https://github.com/radamhu/stremio-musor_tv/workflows/CI%20-%20Tests%20and%20Linting/badge.svg)
 
+### ✅ Stream Endpoint Fix (Oct 20, 2025)
+Fixed the "No streams found" error by implementing the required `/stream` endpoint and updating the manifest. This addon is a **catalog-only/discovery addon** that shows what movies are currently on Hungarian TV, but does not provide actual stream URLs.
+
+**What changed:**
+- Added `/stream/{type}/{id}.json` endpoint that returns `{"streams": []}`
+- Updated manifest to declare `"resources": ["catalog", "stream"]`
+- Proper Stremio protocol compliance for catalog-only addons
+
+**Impact:** The addon now works correctly in Stremio without showing error messages. Users can browse the catalog and see what's on TV, then watch via their actual TV or other streaming sources.
+
+📖 **Documentation:** [STREAM_ENDPOINT_FIX.md](docs/STREAM_ENDPOINT_FIX.md)
+
 ### ✅ Midnight Boundary Fix (Oct 18, 2025)
 Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when scraped in the evening. The time parser now uses a 12-hour threshold to detect midnight boundary crossings, ensuring programs after midnight appear in the correct time windows.
 
@@ -39,9 +51,13 @@ Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when 
 │                      FASTAPI SERVER                              │
 │                        (main.py)                                 │
 │  ┌────────────┐  ┌──────────────┐  ┌──────────────┐           │
-│  │ /manifest  │  │  /catalog    │  │   /healthz   │           │
-│  │   .json    │  │  /{type}/{id}│  │              │           │
+│  │ /manifest  │  │  /catalog    │  │   /stream    │           │
+│  │   .json    │  │  /{type}/{id}│  │  /{type}/{id}│           │
 │  └────────────┘  └──────┬───────┘  └──────────────┘           │
+│                          │           (returns empty streams)     │
+│                          │           ┌──────────────┐           │
+│                          │           │   /healthz   │           │
+│                          │           └──────────────┘           │
 └─────────────────────────┼────────────────────────────────────────┘
                           │
                           ▼
@@ -92,8 +108,9 @@ Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when 
 
 1. **FastAPI Web Server** (`main.py`)
    - Entry point exposing HTTP/JSON endpoints
-   - Routes: `/manifest.json`, `/catalog/{type}/{id}.json`, `/healthz`
+   - Routes: `/manifest.json`, `/catalog/{type}/{id}.json`, `/stream/{type}/{id}.json`, `/healthz`
    - Handles query parameters for search and time filtering
+   - Stream endpoint returns empty array (catalog-only addon)
 
 2. **Catalog Handler** (`catalog_handler.py`)
    - Business logic layer that orchestrates data retrieval and transformation

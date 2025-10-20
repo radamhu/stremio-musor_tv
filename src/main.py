@@ -119,6 +119,28 @@ async def get_catalog(
         )
 
 
+@app.get("/stream/{type}/{id}.json")
+async def get_stream(type: str, id: str):
+    """Handle stream requests.
+    
+    This addon provides catalog/discovery for Hungarian live TV movies,
+    but does not provide actual stream URLs. Returns empty streams array
+    to indicate the content exists but no streams are available from this addon.
+    
+    Users should use other addons or methods to watch the content on their TV.
+    """
+    logger.info(f"Stream request for {type}/{id}")
+    
+    # Validate that this is one of our IDs (format: musortv:channel:timestamp:title)
+    if not id.startswith("musortv:"):
+        logger.warning(f"Invalid stream ID format: {id}")
+        return JSONResponse(content={"streams": []})
+    
+    # This is a valid catalog item from our addon, but we don't provide streams
+    # Return empty array to indicate "no streams available" (not an error)
+    return JSONResponse(content={"streams": []})
+
+
 @app.get("/favicon.ico")
 async def get_favicon():
     """Return a simple favicon to prevent 404 errors."""

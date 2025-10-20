@@ -7,7 +7,7 @@ MANIFEST = {
     "description": "Catalog: movies on Hungarian TV now/soon",
     "logo": "https://stremio-logo.svg",  # replace if you have one
     "behaviorHints": {"configurable": False},
-    "resources": ["catalog"],
+    "resources": ["catalog", "stream"],
     "types": ["movie"],
     "catalogs": [{
         "type": "movie",
