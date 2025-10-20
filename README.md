@@ -15,7 +15,7 @@ The addon exposes HTTP/JSON endpoints that comply with the Stremio addon protoco
 ## 📢 Recent Updates
 
 ![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)
-![CI](https://github.com/radamhu/stremio-musor_tv/workflows/CI%20-%20Tests%20and%20Linting/badge.svg)
+
 
 ### ✅ Stream Endpoint Fix (Oct 20, 2025)
 Fixed the "No streams found" error by implementing the required `/stream` endpoint and updating the manifest. This addon is a **catalog-only/discovery addon** that shows what movies are currently on Hungarian TV, but does not provide actual stream URLs.
@@ -247,14 +247,11 @@ docker-compose down
 
 The containerized addon will be available at `http://localhost:7000`
 
-### Cloud Deployment (Render)
+### Cloud Deployment
+
+#### Render
 
 For production deployment on Render.com:
-
-```bash
-# See detailed deployment guide
-📖 docs/RENDER_DEPLOYMENT.md
-```
 
 Quick steps:
 1. Push repository to GitHub/GitLab
@@ -263,6 +260,40 @@ Quick steps:
 4. Your addon will be at: `https://your-app.onrender.com`
 
 **Note:** Make sure Render is configured to use **Docker runtime** (not Python) so Playwright browsers are properly installed.
+
+**Configuration:**
+- Render uses the `render.yaml` blueprint in the repository
+- Automatically provisions a Docker-based web service
+- Environment variables can be set in the Render dashboard
+- Free tier available with 750 hours/month
+
+#### Railway
+
+For deployment on Railway.app:
+
+Quick steps:
+1. Push repository to GitHub
+2. Create new project on [Railway](https://railway.app)
+3. Connect your GitHub repository
+4. Railway auto-detects `Dockerfile` and builds the image
+5. Set environment variables in Railway dashboard:
+   - `TZ=Europe/Budapest`
+   - `PORT=7000` (or use Railway's auto-assigned port)
+   - `CACHE_TTL_MIN=10`
+   - `SCRAPE_RATE_MS=30000`
+6. Your addon will be at: `https://your-app.railway.app`
+
+**Configuration:**
+- Railway automatically detects and builds Docker projects
+- Uses `Dockerfile` in the repository root
+- Free tier includes $5 of usage per month
+- Easy environment variable management through dashboard
+- Automatic HTTPS with custom domains supported
+
+**Tips for Railway:**
+- Let Railway assign the PORT (use `$PORT` environment variable)
+- Monitor resource usage as Playwright requires ~2GB RAM
+- Consider upgrading to paid plan for production use
 
 ## ⚙️ Configuration
 
