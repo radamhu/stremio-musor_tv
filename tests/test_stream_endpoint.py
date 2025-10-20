@@ -81,3 +81,13 @@ async def test_stream_endpoint_logs_request(caplog):
     # Check that the request was logged
     log_messages = [record.message for record in caplog.records]
     assert any("Stream request" in msg for msg in log_messages)
+
+
+def test_stream_endpoint_handles_percent_encoded_id():
+    """IDs may be percent-encoded by some clients; endpoint should still work."""
+    # ':' encoded as %3A in multiple places
+    encoded_id = "musortv%3Aamc-hd%3A1760950200%3Aelatkozott-ella"
+    response = client.get(f"/stream/movie/{encoded_id}.json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["streams"] == []

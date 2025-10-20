@@ -3,6 +3,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
+from urllib.parse import unquote
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from manifest import MANIFEST
@@ -137,7 +138,13 @@ async def get_stream(type: str, id: str):
     This endpoint returns empty streams to indicate:
     "Content exists in catalog, but use your stream addons to watch it"
     """
-    logger.debug(f"Stream request for {type}/{id} (catalog-only addon)")
+    # Starlette/FastAPI decodes path params, but some clients may double-encode.
+    # Apply a defensive unquote to ensure we operate on a clean ID.
+    raw_id = id
+    id = unquote(id)
+    if id != raw_id:
+        logger.debug(f"Decoded stream id from '{raw_id}' to '{id}'")
+    logger.info(f"Stream request for {type}/{id} (catalog-only addon)")
     
     # Validate musortv ID format
     if id.startswith("musortv:"):
