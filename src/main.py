@@ -191,45 +191,6 @@ async def get_meta(type: str, id: str):
         )
 
 
-@app.get("/stream/{type}/{id}.json")
-async def get_stream(type: str, id: str):
-    """Handle stream requests - catalog addon design.
-    
-    This is a CATALOG/DISCOVERY addon that shows what's on Hungarian TV.
-    It does NOT provide streams - that's the job of stream provider addons
-    (like Torrentio, Cinemeta, etc.) that users install separately.
-    
-    Benefits of this design:
-    - Separation of concerns (discovery vs. streaming)
-    - Users choose their preferred stream sources
-    - No legal liability for stream URLs
-    - Works with any stream provider addon
-    - Follows Stremio's modular architecture
-    
-    This endpoint returns empty streams to indicate:
-    "Content exists in catalog, but use your stream addons to watch it"
-    """
-    # Starlette/FastAPI decodes path params, but some clients may double-encode.
-    # Apply a defensive unquote to ensure we operate on a clean ID.
-    raw_id = id
-    id = unquote(id)
-    if id != raw_id:
-        logger.debug(f"Decoded stream id from '{raw_id}' to '{id}'")
-    
-    # Log with decoded ID for clarity
-    logger.info(f"Stream request for {type}/{id} (catalog-only addon)")
-    
-    # Validate musortv ID format
-    if id.startswith("musortv:"):
-        # This is our catalog item - let stream addons handle it
-        return JSONResponse(content={
-            "streams": []
-        })
-    
-    # Not our ID - ignore
-    return JSONResponse(content={"streams": []})
-
-
 @app.get("/favicon.ico")
 async def get_favicon():
     """Return a simple favicon to prevent 404 errors."""
