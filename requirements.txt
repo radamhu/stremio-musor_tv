@@ -5,7 +5,7 @@ playwright==1.47.0
 cachetools==5.5.0
 pydantic==2.9.2
 python-dotenv==1.0.1
-rich==13.7.1  # Rich logging and console output
+rich==14.2.0  # Rich logging and console output
 aiohttp==3.9.5  # Async HTTP client for TMDB API
 
 # Development/Testing dependencies (optional)
