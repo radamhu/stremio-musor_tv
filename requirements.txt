@@ -3,7 +3,7 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 playwright==1.47.0
 cachetools==5.5.0
-pydantic==2.9.2
+pydantic==2.12.3
 python-dotenv==1.0.1
 rich==13.7.1  # Rich logging and console output
 aiohttp==3.9.5  # Async HTTP client for TMDB API
