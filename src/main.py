@@ -105,7 +105,7 @@ async def get_catalog(
     search: str = Query(None),
     time: str = Query(None)
 ):
-    """Handle catalog requests."""
+    """Handle catalog requests with query parameters."""
     try:
         extra = {}
         if search:
@@ -117,6 +117,46 @@ async def get_catalog(
         return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Error in catalog handler: {e}", exc_info=True)
+        # Return empty catalog instead of 500 error
+        return JSONResponse(
+            content={"metas": []},
+            status_code=200  # Return 200 with empty results for better UX
+        )
+
+
+@app.get("/catalog/{type}/{id}/{extra}.json")
+async def get_catalog_with_extra(
+    type: str,
+    id: str,
+    extra: str
+):
+    """Handle catalog requests with extra parameters in path (Stremio format).
+    
+    Stremio often encodes extra parameters in the path like:
+    /catalog/movie/hu-live/search=matrix.json
+    /catalog/movie/hu-live/time=tonight.json
+    /catalog/movie/hu-live/search=matrix&time=tonight.json
+    """
+    try:
+        # Parse extra parameters from path
+        extra_params = {}
+        
+        # Decode URL-encoded characters
+        extra_decoded = unquote(extra)
+        
+        # Split by & for multiple parameters
+        pairs = extra_decoded.split('&')
+        for pair in pairs:
+            if '=' in pair:
+                key, value = pair.split('=', 1)
+                extra_params[key] = value
+        
+        logger.info(f"Catalog request with path extras: {extra_params}")
+        
+        result = await catalog_handler(type, id, extra_params)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error in catalog handler with extras: {e}", exc_info=True)
         # Return empty catalog instead of 500 error
         return JSONResponse(
             content={"metas": []},
