@@ -20,6 +20,11 @@ services:
       - SCRAPE_RATE_MS=30000
       - LOG_LEVEL=info
       - PYTHONUNBUFFERED=1  # Enable real-time logging
+      # IMDb lookup configuration (optional)
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - IMDB_LOOKUP_ENABLED=${IMDB_LOOKUP_ENABLED:-true}
+      - IMDB_CACHE_TTL_DAYS=${IMDB_CACHE_TTL_DAYS:-7}
+      - IMDB_RATE_LIMIT_PER_SEC=${IMDB_RATE_LIMIT_PER_SEC:-40}
     ports:
       - "7000:7000"
     restart: unless-stopped

@@ -76,16 +76,19 @@ async def root():
 
 @app.get("/healthz")
 async def health_check():
-    """Health check endpoint with scraper status."""
+    """Health check endpoint with scraper and IMDb lookup status."""
     import time
     from scraper import get_scraper_status
+    from imdb_lookup import get_api_status
     
     scraper_status = await get_scraper_status()
+    imdb_status = get_api_status()
     
     return {
         "ok": scraper_status.get("healthy", False),
         "ts": int(time.time() * 1000),
-        "scraper": scraper_status
+        "scraper": scraper_status,
+        "imdb_lookup": imdb_status
     }
 
 

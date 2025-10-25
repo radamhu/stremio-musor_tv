@@ -8,6 +8,7 @@ from time_window import compute_window, within_window
 from scraper import fetch_live_movies
 from utils import is_probably_film, slugify, strip_diacritics
 from models import CatalogExtra, StremioMetaPreview
+from imdb_lookup import lookup_imdb_id, is_lookup_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -44,10 +45,38 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
             logger.info(f"Filtered to {len(filtered)} movies in time window")
             
             metas = []
+            successful_imdb_lookups = 0
+            
             for r in filtered:
                 start_time = datetime.fromisoformat(r.start_iso.replace("Z", "+00:00"))
                 timestamp = int(start_time.timestamp())
-                meta_id = f"musortv:{slugify(r.channel)}:{timestamp}:{slugify(r.title)}"
+                
+                # Try IMDb lookup if enabled
+                imdb_id = None
+                if is_lookup_enabled():
+                    # Extract year from title if available (common format: "Title (2020)")
+                    year = None
+                    if r.category and "," in r.category:
+                        parts = r.category.split(",")
+                        for part in parts:
+                            # Look for 4-digit year
+                            clean_part = part.strip()
+                            if clean_part.isdigit() and len(clean_part) == 4:
+                                year = int(clean_part)
+                                break
+                    
+                    imdb_id = await lookup_imdb_id(r.title, year)
+                    if imdb_id:
+                        successful_imdb_lookups += 1
+                
+                # Choose ID strategy: IMDb ID if found, otherwise custom musortv ID
+                if imdb_id:
+                    meta_id = imdb_id
+                    logger.debug(f"Using IMDb ID {imdb_id} for '{r.title}'")
+                else:
+                    meta_id = f"musortv:{slugify(r.channel)}:{timestamp}:{slugify(r.title)}"
+                    logger.debug(f"Using custom ID for '{r.title}' (no IMDb match)")
+                
                 genres = _parse_genres(r.category)
                 
                 # Enhanced description for better context
@@ -65,6 +94,12 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
                     genres=genres,
                     description=description
                 ))
+            
+            if is_lookup_enabled():
+                logger.info(
+                    f"IMDb lookup success rate: {successful_imdb_lookups}/{len(filtered)} "
+                    f"({successful_imdb_lookups * 100 / len(filtered):.1f}%)"
+                )
             
             logger.info(f"Created {len(metas)} meta previews")
             _cache.set(cache_key, metas)
