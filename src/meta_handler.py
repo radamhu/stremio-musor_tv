@@ -51,9 +51,13 @@ def parse_meta_id(meta_id: str) -> Optional[Dict[str, str]]:
 async def meta_handler(type_: str, id_: str) -> Dict[str, Any]:
     """Handle meta requests - provide detailed movie information.
     
+    Supports two ID formats:
+    1. IMDb ID: tt1234567 (from catalog with IMDb lookup)
+    2. Custom ID: musortv:channel:timestamp:title (fallback)
+    
     Args:
         type_: Content type (should be "movie")
-        id_: Meta ID (format: musortv:channel:timestamp:title)
+        id_: Meta ID (IMDb ID or musortv:channel:timestamp:title)
         
     Returns:
         Dictionary with "meta" key containing detailed movie information
@@ -65,7 +69,32 @@ async def meta_handler(type_: str, id_: str) -> Dict[str, Any]:
         logger.warning(f"Unsupported content type: {type_}")
         return {"meta": None}
     
-    # Parse the ID
+    # Check if this is an IMDb ID or custom musortv ID
+    if id_.startswith("tt") and id_[2:].isdigit():
+        # IMDb ID format - need to match by title from catalog
+        logger.info(f"IMDb ID detected: {id_}, fetching from catalog for title match")
+        
+        # Import here to avoid circular dependency
+        from catalog_handler import catalog_handler
+        
+        # Get catalog to find the movie with this IMDb ID
+        catalog_result = await catalog_handler(type_="movie", id_="hu-live", extra={})
+        matching_meta = None
+        
+        for meta in catalog_result.get("metas", []):
+            if meta.get("id") == id_:
+                matching_meta = meta
+                break
+        
+        if not matching_meta:
+            logger.warning(f"No movie found in catalog with IMDb ID: {id_}")
+            return {"meta": None}
+        
+        # Return the catalog meta (which already has all the info)
+        # Convert StremioMetaPreview to full StremioMeta format
+        return {"meta": matching_meta}
+    
+    # Custom musortv ID format
     parsed = parse_meta_id(id_)
     if not parsed:
         return {"meta": None}
