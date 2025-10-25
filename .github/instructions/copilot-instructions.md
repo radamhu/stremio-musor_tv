@@ -15,24 +15,41 @@ This is a **Stremio addon** that scrapes Hungarian TV listings from musor.tv and
 
 ```
 stremio-musor_tv/
-├── python_src/              # Main application code (Python)
+├── src/                     # Main application code (Python)
 │   ├── main.py             # FastAPI server entry point
 │   ├── manifest.py         # Stremio addon manifest configuration
 │   ├── catalog_handler.py  # Catalog request handler (business logic)
+│   ├── meta_handler.py     # Meta endpoint handler
 │   ├── scraper.py          # Playwright web scraper for musor.tv
 │   ├── time_window.py      # Time filtering logic
 │   ├── cache.py            # TTL cache wrapper (cachetools)
+│   ├── imdb_cache.py       # IMDb metadata caching
+│   ├── imdb_lookup.py      # IMDb search and metadata lookup
 │   ├── utils.py            # Utility functions (slugify, diacritics)
 │   ├── models.py           # Pydantic models and type definitions
 │   └── __init__.py         # Package marker with version
+├── tests/                   # Test suite
+│   ├── test_imdb_lookup.py
+│   ├── test_midnight_boundary.py
+│   ├── test_scraper_refactor.py
+│   ├── test_stream_endpoint.py
+│   └── test_stream_support.py
+├── debug/                   # Debug scripts
+│   ├── debug_selectors_v2.py
+│   ├── debug_selectors.py
+│   ├── demo_midnight_fix.py
+│   ├── dump_html.py
+│   └── validate_stream_endpoint.py
 ├── docs/                    # Project documentation
-│   ├── ARCHITECTURE.md
-│   ├── MAINTENANCE.md
+│   ├── CATALOG_ONLY_DESIGN.md
+│   ├── ERROR_HANDLING_IMPROVEMENTS.md
+│   ├── IMDB_LOOKUP_SPEC.md
+│   ├── META_ENDPOINT_IMPLEMENTATION.md
 │   └── ...
 ├── requirements.txt         # Python dependencies
-├── Dockerfile.python        # Docker container definition
-├── docker-compose.python.yml # Docker Compose configuration
-├── run_python.sh           # Quick start script (executable)
+├── Dockerfile              # Docker container definition
+├── docker-compose.yml      # Docker Compose configuration
+├── render.yaml             # Render.com deployment config
 └── README.md               # Main documentation
 ```
 
@@ -80,8 +97,9 @@ stremio-musor_tv/
 - python-dotenv 1.0.1 (environment variables)
 
 **Deployment:**
-- Docker (Dockerfile.python)
-- Docker Compose (docker-compose.python.yml)
+- Docker (Dockerfile)
+- Docker Compose (docker-compose.yml)
+- Render.com (render.yaml)
 
 ## Environment Variables
 
@@ -141,24 +159,33 @@ title = await el.locator("h3, .title, .új-title-class").first.text_content()
 
 ### Quick Start
 ```bash
-./run_python.sh  # Automated setup and run
-# OR
-pip install -r requirements.txt && playwright install chromium && cd python_src && python main.py
+# Install dependencies
+pip install -r requirements.txt
+playwright install chromium
+
+# Run the server
+cd src && python main.py
+
+# Or use Docker
+docker-compose up
 ```
 
 ## API Endpoints
 
 - `GET /manifest.json` - Stremio addon manifest
 - `GET /catalog/movie/hu-live.json` - Movie catalog (supports `?search=` and `?time=` params)
+- `GET /meta/movie/{imdb_id}.json` - Movie metadata with IMDb lookup
+- `GET /stream/movie/{imdb_id}.json` - Stream links (not supported, returns empty)
 - `GET /healthz` - Health check endpoint
 
 ## Known Limitations
 
 1. **CSS selectors are fragile** - Will break when musor.tv changes their HTML structure
 2. **No browser restart** - Chromium crash will bring down the addon (requires manual restart)
-3. **Midnight boundary bug** - Times after midnight may show as previous day
-4. **Rate limiting** - Minimum 30 seconds between scrape requests to avoid overloading musor.tv
+3. **Rate limiting** - Minimum 30 seconds between scrape requests to avoid overloading musor.tv
+4. **Stream endpoint not supported** - Only catalog and meta endpoints are implemented
+5. **IMDb lookup may be slow** - First lookup for a movie requires web search
 
 ## Version
 
-Current: 1.0.0 (see `python_src/__init__.py`)
+Current: 1.0.0 (see `src/__init__.py`)
