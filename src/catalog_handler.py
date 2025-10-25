@@ -8,7 +8,7 @@ from time_window import compute_window, within_window
 from scraper import fetch_live_movies
 from utils import is_probably_film, slugify, strip_diacritics
 from models import CatalogExtra, StremioMetaPreview
-from imdb_lookup import lookup_imdb_id, is_lookup_enabled
+from imdb_lookup import lookup_imdb_data, is_lookup_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
                 
                 # Try IMDb lookup if enabled
                 imdb_id = None
+                imdb_poster = None
                 if is_lookup_enabled():
                     # Extract year from title if available (common format: "Title (2020)")
                     year = None
@@ -65,9 +66,12 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
                                 year = int(clean_part)
                                 break
                     
-                    imdb_id = await lookup_imdb_id(r.title, year)
-                    if imdb_id:
-                        successful_imdb_lookups += 1
+                    imdb_data = await lookup_imdb_data(r.title, year)
+                    if imdb_data:
+                        imdb_id = imdb_data.get("imdb_id")
+                        imdb_poster = imdb_data.get("poster_url")
+                        if imdb_id:
+                            successful_imdb_lookups += 1
                 
                 # Choose ID strategy: IMDb ID if found, otherwise custom musortv ID
                 if imdb_id:
@@ -76,6 +80,9 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
                 else:
                     meta_id = f"musortv:{slugify(r.channel)}:{timestamp}:{slugify(r.title)}"
                     logger.debug(f"Using custom ID for '{r.title}' (no IMDb match)")
+                
+                # Use IMDb poster if available, otherwise fall back to original
+                poster = imdb_poster if imdb_poster else r.poster
                 
                 genres = _parse_genres(r.category)
                 
@@ -90,7 +97,7 @@ async def catalog_handler(type_: str, id_: str, extra: Optional[Dict[str, Any]] 
                     type="movie",
                     name=r.title,
                     release_info=f"{time_str} • {r.channel}",
-                    poster=r.poster,
+                    poster=poster,
                     genres=genres,
                     description=description
                 ))

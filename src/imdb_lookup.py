@@ -148,6 +148,22 @@ async def _get_imdb_id_from_tmdb(tmdb_id: int) -> Optional[str]:
     return None
 
 
+async def _get_movie_details_from_tmdb(tmdb_id: int) -> Optional[Dict[str, Any]]:
+    """Get full movie details from TMDB including poster.
+    
+    Args:
+        tmdb_id: TMDB movie ID
+        
+    Returns:
+        Dict with movie details including poster_path, or None
+    """
+    url = f"{TMDB_BASE_URL}/movie/{tmdb_id}"
+    params = {"api_key": TMDB_API_KEY}
+    
+    data = await _rate_limited_request(url, params)
+    return data
+
+
 async def lookup_imdb_id(
     title: str,
     year: Optional[int] = None,
@@ -172,6 +188,35 @@ async def lookup_imdb_id(
         >>> print(imdb_id)
         "tt0133093"
     """
+    result = await lookup_imdb_data(title, year, language)
+    if result and isinstance(result, dict):
+        return result.get("imdb_id")
+    return None
+
+
+async def lookup_imdb_data(
+    title: str,
+    year: Optional[int] = None,
+    language: str = "hu-HU"
+) -> Optional[Dict[str, Any]]:
+    """Look up IMDb data including ID and poster for a movie title.
+    
+    This function queries TMDB API and returns both IMDb ID and poster URL.
+    Results are cached automatically by the imdb_cache module.
+    
+    Args:
+        title: Movie title (can be Hungarian or English)
+        year: Release year for better matching accuracy
+        language: TMDB language code (default: hu-HU)
+    
+    Returns:
+        Dict with {"imdb_id": str, "poster_url": str} or None if not found
+        
+    Example:
+        >>> data = await lookup_imdb_data("Mátrix", 1999)
+        >>> print(data)
+        {"imdb_id": "tt0133093", "poster_url": "https://image.tmdb.org/..."}
+    """
     # Check if lookup is enabled
     if not IMDB_LOOKUP_ENABLED:
         logger.debug("IMDb lookup disabled via IMDB_LOOKUP_ENABLED")
@@ -185,15 +230,21 @@ async def lookup_imdb_id(
     # Normalize title for better matching
     normalized_title = title.strip()
     
-    # Check cache first
+    # Check cache first (only for IMDb ID, not full data yet)
     try:
         cached_result = get_cached_imdb_id(normalized_title, year)
-        return cached_result  # Could be IMDb ID or None (cached failed lookup)
+        if cached_result:
+            # We have cached IMDb ID, but need to get poster separately
+            # For now, just return the ID - poster caching could be added later
+            return {"imdb_id": cached_result, "poster_url": None}
+        elif cached_result is None:
+            # Cached failed lookup
+            return None
     except KeyError:
         # Not in cache, proceed with API lookup
         pass
     
-    logger.debug(f"Looking up IMDb ID for '{normalized_title}' (year: {year})")
+    logger.debug(f"Looking up IMDb data for '{normalized_title}' (year: {year})")
     
     try:
         # Step 1: Search for movie on TMDB
@@ -205,18 +256,39 @@ async def lookup_imdb_id(
             set_cached_imdb_id(normalized_title, year, None)
             return None
         
-        # Step 2: Get IMDb ID from TMDB movie ID
+        # Step 2: Get full movie details (includes external IDs and poster)
+        details = await _get_movie_details_from_tmdb(tmdb_id)
+        
+        if not details:
+            logger.debug(f"No details found for TMDB movie {tmdb_id}")
+            set_cached_imdb_id(normalized_title, year, None)
+            return None
+        
+        # Step 3: Get IMDb ID from external IDs endpoint
         imdb_id = await _get_imdb_id_from_tmdb(tmdb_id)
         
+        # Step 4: Build poster URL if available
+        poster_url = None
+        if details.get("poster_path"):
+            # TMDB poster URLs: https://image.tmdb.org/t/p/{size}{poster_path}
+            # Using w500 for good quality
+            poster_url = f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
+        
         if imdb_id:
-            logger.info(f"Found IMDb ID {imdb_id} for '{normalized_title}'")
+            logger.info(f"Found IMDb ID {imdb_id} for '{normalized_title}' with poster: {bool(poster_url)}")
         else:
             logger.debug(f"No IMDb ID found for TMDB movie {tmdb_id}")
         
-        # Cache the result (even if None)
+        # Cache the IMDb ID result (even if None)
         set_cached_imdb_id(normalized_title, year, imdb_id)
         
-        return imdb_id
+        if not imdb_id:
+            return None
+        
+        return {
+            "imdb_id": imdb_id,
+            "poster_url": poster_url
+        }
         
     except Exception as e:
         logger.error(f"Unexpected error during IMDb lookup for '{normalized_title}': {e}")

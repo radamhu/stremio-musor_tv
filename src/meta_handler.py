@@ -5,6 +5,7 @@ from datetime import datetime
 from scraper import fetch_live_movies
 from utils import is_probably_film, slugify
 from models import StremioMeta
+from imdb_lookup import lookup_imdb_data, is_lookup_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,24 @@ async def meta_handler(type_: str, id_: str) -> Dict[str, Any]:
         time_str = start_time.strftime("%H:%M")
         date_str = start_time.strftime("%Y.%m.%d")
         
+        # Try to get IMDb poster if enabled
+        poster = matching_movie.poster
+        if is_lookup_enabled():
+            # Extract year from category if available
+            year = None
+            if matching_movie.category and "," in matching_movie.category:
+                parts = matching_movie.category.split(",")
+                for part in parts:
+                    clean_part = part.strip()
+                    if clean_part.isdigit() and len(clean_part) == 4:
+                        year = int(clean_part)
+                        break
+            
+            imdb_data = await lookup_imdb_data(matching_movie.title, year)
+            if imdb_data and imdb_data.get("poster_url"):
+                poster = imdb_data["poster_url"]
+                logger.debug(f"Using IMDb poster for '{matching_movie.title}'")
+        
         # Parse genres
         genres = _parse_genres(matching_movie.category)
         
@@ -155,8 +174,8 @@ async def meta_handler(type_: str, id_: str) -> Dict[str, Any]:
             id=id_,
             type="movie",
             name=matching_movie.title,
-            poster=matching_movie.poster,
-            background=matching_movie.poster,
+            poster=poster,
+            background=poster,
             genres=genres,
             description=description,
             releaseInfo=f"📅 {date_str} • {time_str}",
