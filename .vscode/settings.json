@@ -1,3 +1,4 @@
 {
-    "window.title": "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}${separator}[Branch: main]"
+    "window.title": "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}${separator}[Branch: main]",
+    "ansible.python.interpreterPath": "/home/ferko/.pyenv/versions/3.9.18/envs/stremio-musor-tv/bin/python"
 }

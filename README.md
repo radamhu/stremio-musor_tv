@@ -382,7 +382,7 @@ docker-compose up --build
 docker-compose up -d
 
 # View logs
-docker-compose logs -f
+docker-compose logs -f | ccze -m ansi
 
 # Stop
 docker-compose down
