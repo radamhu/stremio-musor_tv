@@ -1,5 +1,11 @@
 # Stremio HU Live Movies Addon
 
+[![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)](https://github.com/radamhu/stremio-musor_tv/actions)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/radamhu/stremio-musor_tv/pkgs/container/stremio-musor-tv)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg?logo=python)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A **catalog-only Stremio addon** that discovers movies currently airing or scheduled on Hungarian TV channels. This addon scrapes real-time TV listings from [musor.tv](https://musor.tv) and provides IMDb-matched metadata, enabling seamless integration with your favorite stream provider addons (Torrentio, MediaFusion, etc.).
 
 ## 🎯 Purpose
@@ -25,8 +31,6 @@ This is a **discovery addon**, not a streaming addon. It answers "What's on TV?"
 The addon exposes HTTP/JSON endpoints that comply with the Stremio addon protocol, making Hungarian live TV content discoverable within the Stremio interface.
 
 ## 📢 Recent Updates
-
-![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)
 
 ### 🎬 IMDb Integration (Oct 25, 2025)
 **Major Feature**: Added automatic IMDb ID lookup for Hungarian TV movies using TMDB API.
@@ -791,6 +795,47 @@ open htmlcov/index.html
 - [ ] Alternative time presets (weekend, week ahead)
 - [ ] Multi-language support (English interface option)
 
-## �📄 License
+## 📄 License
 
-MIT License - Same as the original TypeScript version.
+This project is licensed under the **MIT License** - see below for details.
+
+### MIT License
+
+```
+MIT License
+
+Copyright (c) 2025 radamhu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Third-Party Licenses
+
+This project uses the following open-source libraries:
+- **FastAPI** - MIT License
+- **Playwright** - Apache License 2.0
+- **Pydantic** - MIT License
+- **Uvicorn** - BSD License
+- **aiohttp** - Apache License 2.0
+
+For complete dependency licenses, see `requirements.txt` and individual package documentation.
+
+---
+
+**Made with ❤️ for the Hungarian Stremio community**
