@@ -5,7 +5,7 @@ MANIFEST = {
     "version": "1.0.0",
     "name": "HU Live Movies (musor.tv)",
     "description": "TV schedule discovery addon - finds what's on Hungarian TV (streams provided by your other addons)",
-    "logo": "https://stremio-logo.svg",  # replace if you have one
+    "logo": "https://musor.tv/images/etc/logo_small.png",
     "behaviorHints": {"configurable": False},
     "resources": ["catalog", "meta"],
     "types": ["movie"],

@@ -353,6 +353,7 @@ stremio-musor_tv/
 ### Local Development
 
 ```bash
+sudo dnf install -y sqlite-devel tk-devel tcl-devel
 # Python environment setup
 pyenv virtualenv 3.9.18 stremio-musor-tv
 pyenv local stremio-musor-tv

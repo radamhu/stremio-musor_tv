@@ -2,7 +2,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from urllib.parse import unquote
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -68,10 +68,227 @@ app.add_middleware(
 
 
 @app.get("/")
-async def root():
-    """Root endpoint - redirect to manifest."""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/manifest.json")
+async def root(request: Request):
+    """Root endpoint - HTML landing page."""
+    from fastapi.responses import HTMLResponse
+    
+    # Get the base URL dynamically from the request or environment variable
+    base_url = os.getenv("BASE_URL")
+    if not base_url:
+        # Construct from request
+        scheme = request.url.scheme
+        netloc = request.url.netloc
+        base_url = f"{scheme}://{netloc}"
+    
+    html_content = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HU Live Movies (musor.tv) - Stremio Addon</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }}
+        
+        .container {{
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+            text-align: center;
+        }}
+        
+        .logo {{
+            width: 120px;
+            height: auto;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }}
+        
+        h1 {{
+            font-size: 2em;
+            margin-bottom: 10px;
+            color: #2d3748;
+        }}
+        
+        .version {{
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }}
+        
+        .description {{
+            font-size: 1.1em;
+            color: #4a5568;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }}
+        
+        .features {{
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: left;
+        }}
+        
+        .features h3 {{
+            color: #2d3748;
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            text-align: center;
+        }}
+        
+        .features ul {{
+            list-style: none;
+            padding: 0;
+        }}
+        
+        .features li {{
+            padding: 8px 0;
+            color: #4a5568;
+            display: flex;
+            align-items: center;
+        }}
+        
+        .features li:before {{
+            content: "•";
+            color: #667eea;
+            font-weight: bold;
+            font-size: 1.5em;
+            margin-right: 10px;
+        }}
+        
+        .install-btn {{
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            padding: 16px 40px;
+            border-radius: 30px;
+            font-weight: 600;
+            font-size: 1.1em;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            margin-bottom: 20px;
+        }}
+        
+        .install-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }}
+        
+        .support {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e2e8f0;
+        }}
+        
+        .support-link {{
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }}
+        
+        .support-link:hover {{
+            color: #764ba2;
+        }}
+        
+        .info {{
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff5f5;
+            border-left: 4px solid #fc8181;
+            border-radius: 4px;
+            text-align: left;
+            font-size: 0.9em;
+            color: #742a2a;
+        }}
+        
+        .info strong {{
+            color: #c53030;
+        }}
+        
+        code {{
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="https://musor.tv/images/etc/logo_small.png" alt="musor.tv logo" class="logo">
+        
+        <h1>🇭🇺 HU Live Movies</h1>
+        <span class="version">v{MANIFEST['version']}</span>
+        
+        <p class="description">
+            {MANIFEST['description']}
+        </p>
+        
+        <div class="features">
+            <h3>✨ This addon provides:</h3>
+            <ul>
+                <li>Movies currently airing on Hungarian TV</li>
+                <li>Time filters (Now, Next 2h, Tonight)</li>
+                <li>IMDb ID matching for stream providers</li>
+                <li>Accent-insensitive search</li>
+                <li>Real-time TV schedule from musor.tv</li>
+            </ul>
+        </div>
+        
+        <a href="stremio://{base_url}/manifest.json" class="install-btn">
+            📺 INSTALL IN STREMIO
+        </a>
+        
+        <div class="info">
+            <strong>Note:</strong> This is a <strong>catalog-only addon</strong>. 
+            It discovers content on Hungarian TV. Install stream provider addons 
+            (like <code>Torrentio</code>, <code>MediaFusion</code>) to watch the movies.
+        </div>
+        
+        <div class="support">
+            <p style="color: #718096; margin-bottom: 10px;">☕ Enjoying this addon?</p>
+            <a href="https://ko-fi.com/radamhu" class="support-link" target="_blank" rel="noopener">
+                <span>Support on Ko-fi</span>
+                <span>→</span>
+            </a>
+        </div>
+    </div>
+</body>
+</html>
+    """
+    
+    return HTMLResponse(content=html_content)
 
 
 @app.get("/healthz")
