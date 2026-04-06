@@ -4,9 +4,9 @@ from unittest.mock import patch
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from scraper import MusorTvScraper
+from musor_parser import infer_start_iso
 
 
 def demo_midnight_boundary():
@@ -20,33 +20,33 @@ def demo_midnight_boundary():
     # Scenario 1: Full datetime format (always works)
     print("📅 Scenario 1: Full datetime format")
     print("-" * 80)
-    result = MusorTvScraper._infer_start_iso("2025.10.18 22:30")
+    result = infer_start_iso("2025.10.18 22:30")
     print(f"Input:  '2025.10.18 22:30'")
     print(f"Output: {result}")
     print(f"✅ Full date is always parsed correctly\n")
-    
+
     # Scenario 2: Time-only in the afternoon (same day)
     print("📅 Scenario 2: Time-only format - same day")
     print("-" * 80)
-    with patch('scraper.datetime') as mock_dt:
+    with patch('musor_parser.datetime') as mock_dt:
         mock_dt.now.return_value = datetime(2025, 10, 18, 15, 0, 0)
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-        
-        result = MusorTvScraper._infer_start_iso("18:30")
+
+        result = infer_start_iso("18:30")
         print(f"Current time: 15:00 (3 PM)")
         print(f"Input:  '18:30'")
         print(f"Output: {result}")
         print(f"Parsed: Oct 18, 18:30")
         print(f"✅ Future time on same day (3.5 hours ahead)\n")
-    
+
     # Scenario 3: THE BUG FIX - Late night movie
     print("📅 Scenario 3: Time-only format - LATE NIGHT (Bug Fix!)")
     print("-" * 80)
-    with patch('scraper.datetime') as mock_dt:
+    with patch('musor_parser.datetime') as mock_dt:
         mock_dt.now.return_value = datetime(2025, 10, 18, 23, 0, 0)
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-        
-        result = MusorTvScraper._infer_start_iso("01:30")
+
+        result = infer_start_iso("01:30")
         print(f"Current time: 23:00 (11 PM on Oct 18)")
         print(f"Input:  '01:30'")
         print(f"Output: {result}")
@@ -54,29 +54,29 @@ def demo_midnight_boundary():
         print(f"✅ Detected midnight crossing - adjusted to NEXT DAY")
         print(f"   (Without fix: would be Oct 18, 01:30 = 22 hours ago ❌)")
         print(f"   (With fix: Oct 19, 01:30 = 2.5 hours ahead ✅)\n")
-    
+
     # Scenario 4: Edge case - exactly 12 hours
     print("📅 Scenario 4: Edge case - exactly 12 hours past")
     print("-" * 80)
-    with patch('scraper.datetime') as mock_dt:
+    with patch('musor_parser.datetime') as mock_dt:
         mock_dt.now.return_value = datetime(2025, 10, 18, 18, 0, 0)
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-        
-        result = MusorTvScraper._infer_start_iso("06:00")
+
+        result = infer_start_iso("06:00")
         print(f"Current time: 18:00 (6 PM)")
         print(f"Input:  '06:00'")
         print(f"Output: {result}")
         print(f"Parsed: Oct 18, 06:00")
         print(f"✅ Exactly 12 hours ago - NOT adjusted (threshold is > 12 hours)\n")
-    
+
     # Scenario 5: Edge case - just over 12 hours
     print("📅 Scenario 5: Edge case - just over 12 hours past")
     print("-" * 80)
-    with patch('scraper.datetime') as mock_dt:
+    with patch('musor_parser.datetime') as mock_dt:
         mock_dt.now.return_value = datetime(2025, 10, 18, 18, 30, 0)
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-        
-        result = MusorTvScraper._infer_start_iso("06:00")
+
+        result = infer_start_iso("06:00")
         print(f"Current time: 18:30 (6:30 PM)")
         print(f"Input:  '06:00'")
         print(f"Output: {result}")

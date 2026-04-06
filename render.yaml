@@ -15,9 +15,12 @@ services:
         value: 10
       - key: SCRAPE_RATE_MS
         value: 30000
-      # Playwright optimizations for Render free tier
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: /ms-playwright
-      - key: NODE_OPTIONS
-        value: --max-old-space-size=512
+      - key: IMDB_LOOKUP_ENABLED
+        value: true
+      - key: IMDB_CACHE_TTL_DAYS
+        value: 7
+      - key: IMDB_RATE_LIMIT_PER_SEC
+        value: 40
+      - key: TMDB_API_KEY
+        sync: false
     plan: free

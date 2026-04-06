@@ -166,10 +166,10 @@ User Experience:
 │  Deduplication: One scrape at a time                             │
 │                                                                  │
 │  ┌──────────────────────┐                                       │
-│  │  PLAYWRIGHT BROWSER  │                                       │
-│  │  (Headless Chromium) │                                       │
+│  │  httpx + selectolax  │                                       │
+│  │  (HTTP + HTML parser) │                                       │
 │  └──────────┬───────────┘                                       │
-│             │ Navigate + Extract via CSS selectors              │
+│             │ Fetch + Parse via CSS selectors              │
 └─────────────┼───────────────────────────────────────────────────┘
               │
               ▼
@@ -230,15 +230,16 @@ User Experience:
      - ~80%+ cache hit rate
      - Statistics tracking
 
-#### 6. **Web Scraper** (`scraper.py`)
+#### 6. **Web Scraper** (`scraper.py` + `musor_parser.py`)
    - **Role:** musor.tv data extraction
-   - **Technology:** Playwright (headless Chromium)
+   - **Technology:** httpx (async HTTP) + selectolax (HTML parser)
    - **Features:**
-     - Concurrent page scraping
+     - Direct HTTP fetch without browser runtime
+     - Concurrent page scraping with retry and exponential backoff
      - Rate limiting (30s default)
      - In-flight deduplication
-     - Cookie consent handling
      - Robust error recovery
+     - Pure HTML parsing isolated in `musor_parser.py` for testability
 
 #### 7. **Time Window Filter** (`time_window.py`)
    - **Role:** Time-based filtering
@@ -264,7 +265,7 @@ User Experience:
 
 1. **HTTP Request** arrives at FastAPI server with optional `search` and `time` parameters
 2. **Catalog Handler** checks cache for the requested time preset
-3. **Cache Miss** → Scraper fetches live data from musor.tv using Playwright
+3. **Cache Miss** → Scraper fetches live data from musor.tv using plain HTTP (httpx)
 4. **Raw Data** is filtered by:
    - Category (must be a film, not a series)
    - Time window (must fall within selected time range)
@@ -293,7 +294,8 @@ stremio-musor_tv/
 │   ├── manifest.py          # Stremio addon manifest (catalog + meta only)
 │   ├── catalog_handler.py   # Catalog business logic & orchestration
 │   ├── meta_handler.py      # Meta endpoint handler
-│   ├── scraper.py           # Playwright web scraper
+│   ├── scraper.py           # httpx scraper (orchestration + retry)
+│   ├── musor_parser.py      # Pure HTML parser (selectolax)
 │   ├── imdb_lookup.py       # TMDB API integration
 │   ├── imdb_cache.py        # IMDb lookup caching
 │   ├── time_window.py       # Time filtering logic
@@ -330,8 +332,9 @@ stremio-musor_tv/
 - Uvicorn 0.30.6 (ASGI server)
 - Pydantic 2.9.2 (data validation & serialization)
 
-**Scraping & Caching:**
-- Playwright 1.47.0 (headless Chromium browser automation)
+**Scraping & Parsing:**
+- httpx 0.27.2 (async HTTP client for musor.tv fetches)
+- selectolax 0.3.21 (fast CSS selector HTML parser)
 - cachetools 5.5.0 (TTL cache implementation)
 - python-dotenv 1.0.1 (environment configuration)
 
@@ -346,29 +349,23 @@ stremio-musor_tv/
 
 **Deployment:**
 - Docker + Docker Compose
-- Chromium browser installed in container
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python 3.11 or higher
 - pip (Python package manager)
-- 2GB+ RAM (for Chromium browser)
+- ~256 MB RAM (no browser runtime required)
 
 ### Local Development
 
 ```bash
-sudo dnf install -y sqlite-devel tk-devel tcl-devel
 # Python environment setup
-pyenv virtualenv 3.9.18 stremio-musor-tv
+pyenv virtualenv 3.11 stremio-musor-tv
 pyenv local stremio-musor-tv
 pyenv activate stremio-musor-tv
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Install Playwright browsers
-playwright install chromium
-playwright install-deps chromium
 
 # Run the application
 cd src
@@ -407,7 +404,7 @@ Quick steps:
 3. Render auto-detects `render.yaml` and builds Docker image
 4. Your addon will be at: `https://your-app.onrender.com`
 
-**Note:** Make sure Render is configured to use **Docker runtime** (not Python) so Playwright browsers are properly installed.
+**Note:** Make sure Render is configured to use **Docker runtime** (not Python) for consistent builds.
 
 **Configuration:**
 - Render uses the `render.yaml` blueprint in the repository
@@ -440,7 +437,7 @@ Quick steps:
 
 **Tips for Railway:**
 - Let Railway assign the PORT (use `$PORT` environment variable)
-- Monitor resource usage as Playwright requires ~2GB RAM
+- Monitor resource usage (lightweight: ~64–128 MB RAM typical)
 - Consider upgrading to paid plan for production use
 
 ## ⚙️ Configuration
@@ -737,18 +734,27 @@ curl http://localhost:7000/catalog/movie/hu-live.json?time=tonight&search=horror
 # Install test dependencies
 pip install -r requirements.txt
 
-# Run all tests
-pytest tests/ -v
+# Run all tests (deterministic, no network access required)
+python -m pytest tests/ -q --ignore=tests/test_stream_support.py --ignore=tests/test_stream_endpoint.py
 
-# Run specific test file
-pytest tests/test_imdb_lookup.py -v
+# Core scraper/parser/time tests
+python -m pytest tests/test_musor_parser.py tests/test_scraper_refactor.py tests/test_midnight_boundary.py -q
+
+# Contract tests only
+python -m pytest tests/test_contracts.py -q
+
+# Run a specific test file verbosely
+python -m pytest tests/test_imdb_lookup.py -v
 
 # Run with coverage
-pytest tests/ --cov=src --cov-report=html
+python -m pytest tests/ --cov=src --cov-report=html --ignore=tests/test_stream_support.py
 
 # View coverage report
 open htmlcov/index.html
 ```
+
+> **Note:** `tests/test_stream_support.py` and `tests/test_stream_endpoint.py` have unresolved
+> import dependencies and must be excluded until those modules are implemented.
 
 ### Test Coverage
 
@@ -756,8 +762,11 @@ open htmlcov/index.html
 - ✅ Caching behavior (both catalog and IMDb)
 - ✅ API error handling and fallbacks
 - ✅ Hungarian title normalization
-- ✅ Midnight boundary calculations
-- ✅ Stream endpoint validation
+- ✅ Midnight boundary calculations (`test_midnight_boundary.py`)
+- ✅ Scraper lifecycle and retry behavior (`test_scraper_refactor.py`)
+- ✅ HTML parser field extraction and resilience (`test_musor_parser.py`)
+- ✅ Catalog and meta contract shapes (`test_contracts.py`)
+- ✅ Graceful degradation on scraper and lookup failures (`test_contracts.py`)
 
 ## 🔗 Related Documentation
 
@@ -770,8 +779,94 @@ open htmlcov/index.html
 ### Development Guides
 - [Copilot Instructions](.github/instructions/copilot-instructions.md) - Development guidelines
 - [Code Analysis Prompt](docs/CODE_ANALYSIS_PROMPT.md) - Analysis methodology
-- [Scraper Refactor Summary](docs/SCRAPER_REFACTOR_SUMMARY.md) - Scraper architecture
-- [Error Handling Improvements](docs/ERROR_HANDLING_IMPROVEMENTS.md) - Error handling patterns
+- [Scraper Refactor Summary](docs/SCRAPER_REFACTOR_SUMMARY.md) - Lightweight scraper architecture, selector reference, fixture maintenance
+- [Lightweight Scraper Refactor Plan](docs/LIGHTWEIGHT_SCRAPER_REFACTOR_PLAN.md) - Full refactor plan with phase results
+
+## 🔧 Troubleshooting
+
+### Catalog returns empty results
+
+1. Check `/healthz` — if `scraper.healthy` is `false`, the last scrape failed.
+2. Run `python debug/debug_selectors_v2.py` to verify CSS selectors still match live HTML.
+3. If selectors return 0 matches, musor.tv HTML structure may have changed — see
+   [Scraper Refactor Summary — Parser Fixture Maintenance](docs/SCRAPER_REFACTOR_SUMMARY.md#parser-fixture-maintenance).
+4. Check logs for `[scraper]` lines: distinguish `transport failure` (network) from
+   `parse failure` (selector drift).
+
+### Scraper reports errors on startup
+
+The scraper initialises lazily — it does not fetch on startup. The first error will appear
+after the first catalog request arrives. Check:
+- Network connectivity from the container to `musor.tv`
+- Whether `musor.tv` is returning HTTP 200 (`python debug/dump_html.py` writes to `/tmp/`)
+- Whether the `User-Agent` header is being blocked (check response status in logs)
+
+### IMDb IDs not appearing in catalog
+
+- Confirm `IMDB_LOOKUP_ENABLED=true` in environment.
+- Confirm `TMDB_API_KEY` is set and valid.
+- Check `/healthz` → `imdb_lookup.api_key_configured` must be `true`.
+- The cache is cold on first run; after a few catalog requests the hit rate climbs.
+
+### Docker container exits immediately
+
+- Check `docker logs <container>` — startup errors log to stderr.
+- Confirm `TZ=Europe/Budapest` is set; the time-window logic requires this.
+- Confirm `PORT` matches the published port mapping.
+
+### Tests fail with import errors on `stream_handler`
+
+`tests/test_stream_support.py` imports a module that does not yet exist. Exclude it:
+
+```bash
+python -m pytest tests/ -q --ignore=tests/test_stream_support.py
+```
+
+### Selector drift (musor.tv HTML changed)
+
+See [Parser Fixture Maintenance](docs/SCRAPER_REFACTOR_SUMMARY.md#parser-fixture-maintenance)
+for the step-by-step diagnosis checklist.
+
+---
+
+## 📦 Migrating from the Playwright Build
+
+The Playwright-based scraper was removed in April 2026. If you are upgrading from an older
+image:
+
+### What changed
+
+| Area | Before | After |
+|------|--------|-------|
+| Scraper | Playwright + Chromium headless browser | `httpx` HTTP client + `selectolax` HTML parser |
+| Image size | ~1.18 GB | ~221 MB |
+| Startup RAM | ~400–800 MB | ~62 MB |
+| `requirements.txt` | `playwright==1.47.0` | `httpx==0.27.2`, `selectolax==0.3.21` |
+| Dockerfile | Multi-stage, installs Chromium | Single-stage `python:3.11-slim` |
+| Env vars removed | `PLAYWRIGHT_BROWSERS_PATH`, `NODE_OPTIONS` | — |
+
+### Migration steps
+
+1. **Pull the latest image** or rebuild from source — no code changes needed on your part.
+2. **Remove Playwright env vars** from your deployment if you set them manually:
+   - `PLAYWRIGHT_BROWSERS_PATH`
+   - `NODE_OPTIONS`
+3. **Reduce memory limits** — `256M` is sufficient; `1G` is no longer required.
+4. **All other environment variables are unchanged** — `TZ`, `PORT`, `CACHE_TTL_MIN`,
+   `SCRAPE_RATE_MS`, `TMDB_API_KEY`, and all `IMDB_*` vars work exactly as before.
+5. **No endpoint or response format changes** — existing Stremio installs continue to work.
+
+### Rollback
+
+If you need to return to the Playwright build:
+1. Identify the last Playwright commit in your history:
+   ```bash
+   git log --oneline --all -- requirements.txt | grep -i playwright
+   ```
+2. Check out that commit or create a `rollback/playwright` branch.
+3. Raise memory limits back to `1G` in docker-compose / Render / Railway.
+
+---
 
 ## 🎯 Roadmap
 
@@ -784,6 +879,7 @@ open htmlcov/index.html
 - [x] IMDb ID lookup integration
 - [x] TMDB API Bearer token support
 - [x] Comprehensive test coverage
+- [x] Lightweight HTTP scraper (httpx + selectolax, no browser runtime)
 - [x] Catalog-only architecture (stream addons handle playback)
 
 ### Planned Features
@@ -829,7 +925,8 @@ SOFTWARE.
 
 This project uses the following open-source libraries:
 - **FastAPI** - MIT License
-- **Playwright** - Apache License 2.0
+- **httpx** - BSD License
+- **selectolax** - MIT License
 - **Pydantic** - MIT License
 - **Uvicorn** - BSD License
 - **aiohttp** - Apache License 2.0

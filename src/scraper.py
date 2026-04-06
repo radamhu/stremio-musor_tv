@@ -1,18 +1,19 @@
 """Web scraper for musor.tv live movies."""
 import asyncio
 import os
-import re
 import logging
-from datetime import datetime, timedelta
 from typing import Optional, List, Any, Dict
-from playwright.async_api import async_playwright, Browser, Page
+import httpx
 from models import LiveMovieRaw
+from musor_parser import parse_filmek, dedupe
 
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 RATE_MS = int(os.getenv("SCRAPE_RATE_MS", "30000"))
+
+_USER_AGENT = "Mozilla/5.0 (compatible; StremioHU/1.0; +https://github.com/radamhu/stremio-musor_tv)"
 
 # Target pages – adjust as needed if markup changes
 PAGES = [
@@ -31,8 +32,7 @@ class MusorTvScraper:
             rate_limit_ms: Minimum milliseconds between fetches
         """
         self._rate_limit_ms = rate_limit_ms
-        self._browser: Optional[Browser] = None
-        self._playwright: Optional[Any] = None  # Playwright instance
+        self._http_client: Optional[httpx.AsyncClient] = None
         self._last_fetch_at: float = 0
         self._fetch_lock = asyncio.Lock()
         self._in_flight_task: Optional[asyncio.Task] = None
@@ -45,53 +45,22 @@ class MusorTvScraper:
         self._consecutive_error_count: int = 0
         
     async def initialize(self) -> None:
-        """Initialize the browser instance."""
-        if self._browser is None:
-            logger.info("Initializing Playwright browser...")
-            pw = await async_playwright().start()
-            self._playwright = pw
-            
-            # Optimized browser settings for limited resources (e.g., Render free tier)
-            self._browser = await pw.chromium.launch(
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",  # Overcome limited /dev/shm space
-                    "--disable-gpu",
-                    "--disable-software-rasterizer",
-                    "--disable-extensions",
-                    "--disable-background-networking",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-breakpad",
-                    "--disable-component-extensions-with-background-pages",
-                    "--disable-features=TranslateUI,BlinkGenPropertyTrees",
-                    "--disable-ipc-flooding-protection",
-                    "--disable-renderer-backgrounding",
-                    "--enable-features=NetworkService,NetworkServiceInProcess",
-                    "--force-color-profile=srgb",
-                    "--hide-scrollbars",
-                    "--metrics-recording-only",
-                    "--mute-audio",
-                    "--no-first-run",
-                    "--disable-sync",
-                    "--disable-default-apps"
-                ],
-                headless=True,
-                timeout=60000  # Increased timeout for slow environments
+        """Initialize the HTTP client."""
+        if self._http_client is None:
+            logger.info("Initializing httpx client...")
+            self._http_client = httpx.AsyncClient(
+                headers={"User-Agent": _USER_AGENT},
+                timeout=httpx.Timeout(30.0, connect=10.0),
+                follow_redirects=True,
             )
-            logger.info("Browser initialized successfully")
+            logger.info("HTTP client initialized successfully")
     
     async def cleanup(self) -> None:
-        """Cleanup browser resources."""
-        if self._browser:
-            logger.info("Closing browser...")
-            await self._browser.close()
-            self._browser = None
-        
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+        """Cleanup HTTP client resources."""
+        if self._http_client:
+            logger.info("Closing HTTP client...")
+            await self._http_client.aclose()
+            self._http_client = None
             
     async def fetch_live_movies(self, force: bool = False) -> List[LiveMovieRaw]:
         """Fetch live movie data from musor.tv with rate limiting and deduplication.
@@ -143,200 +112,63 @@ class MusorTvScraper:
                 raise
     
     async def _fetch(self) -> List[LiveMovieRaw]:
-        """Internal method to perform the actual scraping.
-        
-        Returns:
-            List of deduplicated LiveMovieRaw objects
-        """
+        """Internal method to perform the actual scraping."""
         logger.info("Starting fetch_live_movies...")
-        
-        # Ensure browser is initialized
         await self.initialize()
-        
-        if not self._browser:
-            raise RuntimeError("Browser not initialized")
-        
+
         results: List[LiveMovieRaw] = []
-        
+
         for url in PAGES:
             logger.info(f"Scraping {url}")
-            page = await self._browser.new_page(user_agent=self._get_user_agent())
-            
-            # Set a longer default timeout for slow environments
-            page.set_default_timeout(90000)  # 90 seconds
-            
-            try:
-                # Retry logic for page navigation with exponential backoff
-                max_retries = 3
-                retry_delay = 2  # seconds
-                last_error = None
-                
-                for attempt in range(max_retries):
-                    try:
-                        logger.info(f"Loading {url} (attempt {attempt + 1}/{max_retries})")
-                        await page.goto(
-                            url, 
-                            wait_until="domcontentloaded",  # Faster than 'load' or 'networkidle'
-                            timeout=90000  # 90 seconds for slow hosts
-                        )
-                        logger.info(f"Successfully loaded {url}")
-                        break  # Success, exit retry loop
-                    except Exception as e:
-                        last_error = e
-                        logger.warning(f"Attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
-                        
-                        if attempt < max_retries - 1:  # Don't sleep on last attempt
-                            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                            logger.info(f"Retrying in {wait_time} seconds...")
-                            await asyncio.sleep(wait_time)
-                        else:
-                            # All retries failed
-                            logger.error(f"All {max_retries} attempts failed for {url}: {last_error}")
-                            raise
-                
-                # Accept cookie if present
-                await self._safe_click(page, 'button:has-text("Elfogadom"), button:has-text("Accept")')
-                await asyncio.sleep(2)  # Wait for content to load after cookie acceptance
-                
-                # Find show event tables - these contain the TV program information
-                cards = page.locator("table.showeventtable")
-                count = await cards.count()
-                logger.info(f"Found {count} show events on {url}")
-                
-                for i in range(count):
-                    el = cards.nth(i)
-                    
-                    try:
-                        # Title is in .showeventtitle a
-                        title_elem = el.locator(".showeventtitle a").first
-                        title = await title_elem.text_content()
-                        title = self._cleanup(title)
-                        if not title:
-                            continue
-                        
-                        # Time is in .showeventtime with format "2025.10.18 22:30"
-                        time_elem = el.locator(".showeventtime").first
-                        time_text = await time_elem.text_content()
-                        time_text = self._cleanup(time_text)
-                        
-                        # Channel is in the img alt text or the link
-                        channel_elem = el.locator(".showeventchannel img").first
-                        channel = await channel_elem.get_attribute("alt")
-                        channel = self._cleanup(channel) if channel else ""
-                        
-                        # Category/description is in the td with itemprop="description"
-                        desc_elem = el.locator('td[itemprop="description"]').first
-                        category = await desc_elem.text_content() if await desc_elem.count() > 0 else ""
-                        category = self._cleanup(category)
-                        
-                        # Image is in .showeventimg
-                        img_elem = el.locator("img.showeventimg").first
-                        img = await img_elem.get_attribute("src") if await img_elem.count() > 0 else None
-                        
-                        start_iso = self._infer_start_iso(time_text)
-                        results.append(LiveMovieRaw(
-                            title=title,
-                            start_iso=start_iso,
-                            channel=channel,
-                            category=category,
-                            poster=self._absolutize(img)
-                        ))
-                    except Exception as e:
-                        logger.warning(f"Failed to parse show event {i} on {url}: {e}")
-                        continue
-                    
-            except Exception as e:
-                logger.error(f"Failed to scrape {url}: {e}", exc_info=True)
-            finally:
-                await page.close()
-        
+            html = await self._get_page(url)
+            if html is None:
+                logger.warning(f"Skipping {url}: no HTML retrieved")
+                continue
+            page_results = parse_filmek(html)
+            logger.info(f"Parsed {len(page_results)} items from {url}")
+            results.extend(page_results)
+
         logger.info(f"Total raw results before deduplication: {len(results)}")
-        deduplicated = self._dedupe(results)
+        deduplicated = dedupe(results)
         logger.info(f"Total results after deduplication: {len(deduplicated)}")
         return deduplicated
-    
-    @staticmethod
-    def _cleanup(s: Optional[str]) -> str:
-        """Clean up whitespace in string."""
-        if not s:
-            return ""
-        return re.sub(r"\s+", " ", s).strip()
-    
-    @staticmethod
-    def _infer_start_iso(time_text: str) -> str:
-        """Parse musor.tv datetime format with midnight boundary handling.
-        
-        Handles two formats:
-        1. Full datetime: '2025.10.18 22:30' (always accurate)
-        2. Time only: '01:30' (uses day boundary detection)
-        
-        For time-only formats, if the parsed time is more than 12 hours in the past,
-        we assume it refers to the next day (handles late-night programs).
+
+    async def _get_page(self, url: str) -> Optional[str]:
+        """Fetch a page with retry logic.
+
+        Args:
+            url: The URL to fetch.
+
+        Returns:
+            HTML text on success, None if all retries fail.
         """
-        # Try full datetime format first: YYYY.MM.DD HH:MM
-        match = re.search(r"(\d{4})\.(\d{2})\.(\d{2})\s+(\d{1,2}):(\d{2})", time_text)
-        if match:
-            year, month, day, hour, minute = match.groups()
-            d = datetime(int(year), int(month), int(day), int(hour), int(minute))
-            return d.isoformat()
-        
-        # Fallback: HH:MM only - detect day boundary
-        match = re.search(r"(\d{1,2}):(\d{2})", time_text)
-        now = datetime.now()
-        
-        if match:
-            hour, minute = int(match.group(1)), int(match.group(2))
-            d = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            
-            # If the time is significantly in the past (> 12 hours), assume next day
-            # This handles late-night programs (e.g., scraping at 23:00, program at 01:00)
-            time_diff = (d - now).total_seconds()
-            if time_diff < -12 * 3600:  # More than 12 hours in the past
-                d = d + timedelta(days=1)
-                logger.debug(f"Adjusted date for time '{time_text}': crossed midnight boundary (now={now.strftime('%H:%M')}, parsed={hour:02d}:{minute:02d})")
-            
-            return d.isoformat()
-        
-        # No time pattern found, return current time as fallback
-        return now.isoformat()
-    
-    @staticmethod
-    def _absolutize(src: Optional[str]) -> Optional[str]:
-        """Convert relative URLs to absolute."""
-        if not src:
-            return None
-        if src.startswith("http"):
-            return src
-        prefix = "" if src.startswith("/") else "/"
-        return f"https://musor.tv{prefix}{src}"
-    
-    @staticmethod
-    async def _safe_click(page: Page, selector: str) -> None:
-        """Safely click element if it exists."""
-        try:
-            el = page.locator(selector).first
-            if await el.count():
-                await el.click(timeout=2000)
-        except Exception as e:
-            logger.debug(f"Could not click element '{selector}': {e}")
-            pass
-    
-    @staticmethod
-    def _dedupe(items: List[LiveMovieRaw]) -> List[LiveMovieRaw]:
-        """Remove duplicate entries."""
-        seen = set()
-        result = []
-        for x in items:
-            key = f"{x.title}|{x.channel}|{x.start_iso[:16]}"
-            if key not in seen:
-                seen.add(key)
-                result.append(x)
-        return result
-    
+        if self._http_client is None:
+            await self.initialize()
+        assert self._http_client is not None
+
+        max_retries = 3
+        retry_delays = [2, 4]  # seconds between attempt 1→2 and 2→3
+
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Loading {url} (attempt {attempt + 1}/{max_retries})")
+                response = await self._http_client.get(url)
+                response.raise_for_status()
+                return response.text
+            except httpx.HTTPError as e:
+                logger.warning(f"Attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+
+        logger.error(f"All {max_retries} attempts failed for {url}")
+        return None
+
     @staticmethod
     def _get_user_agent() -> str:
-        """User agent string with valid project contact information."""
-        return "Mozilla/5.0 (compatible; StremioHU/1.0; +https://github.com/radamhu/stremio-musor_tv)"
+        """User agent string."""
+        return _USER_AGENT
     
     def get_status(self) -> Dict[str, Any]:
         """Get current scraper status for health monitoring.

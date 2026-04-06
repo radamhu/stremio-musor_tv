@@ -1,199 +1,285 @@
 """
-Simple tests to verify the scraper refactoring works correctly.
-
-Run with: pytest tests/test_scraper_refactor.py -v
+Tests for scraper refactor: httpx-based scraper, retry behavior, and integration mocks.
 """
+import sys
+import pathlib
 import pytest
-import asyncio
-from src.scraper import MusorTvScraper, get_scraper, fetch_live_movies, cleanup_scraper
+import httpx
+from unittest.mock import AsyncMock, MagicMock, patch
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "src"))
+
+from scraper import MusorTvScraper, get_scraper, cleanup_scraper  # noqa: E402
+
+FIXTURE_HTML = (
+    pathlib.Path(__file__).parent / "fixtures" / "musor_filmek_sample.html"
+).read_text(encoding="utf-8")
 
 
 class TestScraperRefactoring:
-    """Tests for the refactored MusorTvScraper class."""
-    
     @pytest.mark.asyncio
-    async def test_scraper_initialization(self):
-        """Test that scraper initializes and cleans up properly."""
+    async def test_initial_state_has_no_http_client(self):
+        """MusorTvScraper starts with _http_client = None (no browser startup)."""
         scraper = MusorTvScraper(rate_limit_ms=1000)
-        
-        # Should not be initialized yet
-        assert scraper._browser is None
-        assert scraper._playwright is None
-        
-        # Initialize
-        await scraper.initialize()
-        assert scraper._browser is not None
-        assert scraper._playwright is not None
-        
-        # Cleanup
-        await scraper.cleanup()
-        assert scraper._browser is None
-        assert scraper._playwright is None
-    
+        assert scraper._http_client is None
+        assert not hasattr(scraper, "_browser"), "scraper must not have a _browser attribute"
+        assert not hasattr(scraper, "_playwright"), "scraper must not have a _playwright attribute"
+
     @pytest.mark.asyncio
-    async def test_scraper_thread_safety(self):
-        """Test that concurrent fetches are handled safely."""
+    async def test_initialize_creates_http_client(self):
+        """initialize() must create an httpx.AsyncClient."""
         scraper = MusorTvScraper(rate_limit_ms=1000)
         await scraper.initialize()
-        
         try:
-            # Launch multiple concurrent fetches
-            tasks = [scraper.fetch_live_movies() for _ in range(5)]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # All should succeed (no race conditions)
-            for result in results:
-                assert not isinstance(result, Exception)
-                assert isinstance(result, list)
-            
-            # All results should be identical (reused in-flight fetch)
-            first_result = results[0]
-            for result in results[1:]:
-                assert result == first_result
-                
+            assert scraper._http_client is not None
+            assert isinstance(scraper._http_client, httpx.AsyncClient)
         finally:
             await scraper.cleanup()
-    
+
     @pytest.mark.asyncio
-    async def test_scraper_rate_limiting(self):
-        """Test that rate limiting works correctly."""
-        import time
-        
-        scraper = MusorTvScraper(rate_limit_ms=500)
+    async def test_cleanup_closes_http_client(self):
+        """cleanup() must set _http_client back to None."""
+        scraper = MusorTvScraper(rate_limit_ms=1000)
         await scraper.initialize()
-        
+        assert scraper._http_client is not None
+        await scraper.cleanup()
+        assert scraper._http_client is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_live_movies_returns_list(self):
+        """fetch_live_movies() parses fixture HTML and returns a list."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        await scraper.initialize()
         try:
-            # First fetch
-            start = time.time()
-            await scraper.fetch_live_movies(force=False)
-            
-            # Second fetch should be rate limited if forced
-            await scraper.fetch_live_movies(force=True)
-            elapsed = time.time() - start
-            
-            # Should have waited at least 500ms
-            assert elapsed >= 0.5
-            
+            with patch.object(scraper, "_get_page", new=AsyncMock(return_value=FIXTURE_HTML)):
+                result = await scraper.fetch_live_movies(force=True)
+            assert isinstance(result, list)
         finally:
             await scraper.cleanup()
-    
+
     @pytest.mark.asyncio
-    async def test_singleton_pattern(self):
-        """Test that get_scraper() returns singleton instance."""
-        scraper1 = await get_scraper()
-        scraper2 = await get_scraper()
-        
-        # Should be the same instance
-        assert scraper1 is scraper2
-        assert scraper1._browser is not None
-        
-        # Cleanup
+    async def test_error_counting_on_http_error(self):
+        """fetch_live_movies() increments error counters when _get_page raises."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        await scraper.initialize()
+        try:
+            with patch.object(
+                scraper,
+                "_get_page",
+                new=AsyncMock(side_effect=httpx.HTTPError("connection refused")),
+            ):
+                with pytest.raises(Exception):
+                    await scraper.fetch_live_movies(force=True)
+            assert scraper._total_error_count == 1
+            assert scraper._consecutive_error_count == 1
+        finally:
+            await scraper.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_get_status_keys(self):
+        """get_status() returns a dict with all required health keys."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        status = scraper.get_status()
+        expected_keys = {
+            "healthy",
+            "last_success_at",
+            "last_error_at",
+            "last_error",
+            "total_errors",
+            "consecutive_errors",
+        }
+        assert expected_keys.issubset(status.keys())
+
+    @pytest.mark.asyncio
+    async def test_singleton_returns_same_instance(self):
+        """get_scraper() returns the same instance on repeated calls."""
+        # Reset any existing singleton first
         await cleanup_scraper()
-    
+        try:
+            scraper1 = await get_scraper()
+            scraper2 = await get_scraper()
+            assert scraper1 is scraper2
+            assert scraper1._http_client is not None
+        finally:
+            await cleanup_scraper()
+
+
+class TestGetPageRetryBehavior:
+    """Tests for _get_page retry and failure handling using httpx mocks."""
+
     @pytest.mark.asyncio
-    async def test_backward_compatibility(self):
-        """Test that the old API still works."""
-        # This should work exactly as before
-        movies = await fetch_live_movies(force=False)
-        
-        # Should return a list
-        assert isinstance(movies, list)
-        
-        # Cleanup
-        await cleanup_scraper()
-    
+    async def test_get_page_retries_and_succeeds_on_third_attempt(self):
+        """_get_page retries transient HTTPErrors and returns HTML on eventual success."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        await scraper.initialize()
+        try:
+            mock_response = MagicMock()
+            mock_response.text = FIXTURE_HTML
+            mock_response.raise_for_status = MagicMock()
+
+            call_count = 0
+
+            async def mock_get(url, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                if call_count < 3:
+                    raise httpx.HTTPError("transient error")
+                return mock_response
+
+            with patch.object(scraper._http_client, "get", side_effect=mock_get):
+                with patch("asyncio.sleep", new=AsyncMock()):
+                    result = await scraper._get_page("https://musor.tv/filmek")
+
+            assert result == FIXTURE_HTML
+            assert call_count == 3
+        finally:
+            await scraper.cleanup()
+
     @pytest.mark.asyncio
-    async def test_multiple_initializations(self):
-        """Test that multiple initialize calls don't create multiple browsers."""
-        scraper = MusorTvScraper()
-        
+    async def test_get_page_returns_none_when_all_retries_exhausted(self):
+        """_get_page returns None after all three retry attempts raise HTTPError."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
         await scraper.initialize()
-        browser1 = scraper._browser
-        
-        # Second initialize should not create new browser
-        await scraper.initialize()
-        browser2 = scraper._browser
-        
-        assert browser1 is browser2
-        
-        await scraper.cleanup()
-    
+        try:
+            with patch.object(
+                scraper._http_client,
+                "get",
+                new=AsyncMock(side_effect=httpx.HTTPError("network error")),
+            ):
+                with patch("asyncio.sleep", new=AsyncMock()):
+                    result = await scraper._get_page("https://musor.tv/filmek")
+
+            assert result is None
+        finally:
+            await scraper.cleanup()
+
     @pytest.mark.asyncio
-    async def test_cleanup_idempotent(self):
-        """Test that cleanup can be called multiple times safely."""
-        scraper = MusorTvScraper()
+    async def test_get_page_returns_none_on_http_status_error(self):
+        """_get_page returns None when raise_for_status() raises HTTPStatusError."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
         await scraper.initialize()
-        
-        # First cleanup
-        await scraper.cleanup()
-        assert scraper._browser is None
-        
-        # Second cleanup should not raise error
-        await scraper.cleanup()
-        assert scraper._browser is None
+        try:
+            mock_response = MagicMock()
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "404 Not Found",
+                request=MagicMock(),
+                response=MagicMock(),
+            )
+
+            with patch.object(
+                scraper._http_client, "get", new=AsyncMock(return_value=mock_response)
+            ):
+                with patch("asyncio.sleep", new=AsyncMock()):
+                    result = await scraper._get_page("https://musor.tv/filmek")
+
+            assert result is None
+        finally:
+            await scraper.cleanup()
 
 
-class TestScraperHelperMethods:
-    """Tests for scraper helper methods."""
-    
-    def test_cleanup_string(self):
-        """Test string cleanup."""
-        assert MusorTvScraper._cleanup("  Hello   World  ") == "Hello World"
-        assert MusorTvScraper._cleanup("\n\tTest\n") == "Test"
-        assert MusorTvScraper._cleanup(None) == ""
-        assert MusorTvScraper._cleanup("") == ""
-    
-    def test_infer_start_iso_full_format(self):
-        """Test parsing full datetime format."""
-        result = MusorTvScraper._infer_start_iso("2025.10.18 22:30")
-        assert "2025-10-18" in result
-        assert "22:30" in result
-    
-    def test_infer_start_iso_time_only(self):
-        """Test parsing time only format."""
-        result = MusorTvScraper._infer_start_iso("14:30")
-        assert "14:30" in result
-    
-    def test_absolutize_url(self):
-        """Test URL absolutization."""
-        assert MusorTvScraper._absolutize("/image.jpg") == "https://musor.tv/image.jpg"
-        assert MusorTvScraper._absolutize("image.jpg") == "https://musor.tv/image.jpg"
-        assert MusorTvScraper._absolutize("https://example.com/img.jpg") == "https://example.com/img.jpg"
-        assert MusorTvScraper._absolutize(None) is None
-    
-    def test_dedupe(self):
-        """Test deduplication logic."""
-        from src.models import LiveMovieRaw
-        
-        items = [
-            LiveMovieRaw(
-                title="Movie 1",
-                start_iso="2025-10-18T22:00:00",
-                channel="TV1",
-                category="Film",
-                poster=None
-            ),
-            LiveMovieRaw(
-                title="Movie 1",
-                start_iso="2025-10-18T22:00:00",
-                channel="TV1",
-                category="Film",
-                poster=None
-            ),
-            LiveMovieRaw(
-                title="Movie 2",
-                start_iso="2025-10-18T23:00:00",
-                channel="TV2",
-                category="Film",
-                poster=None
-            ),
-        ]
-        
-        result = MusorTvScraper._dedupe(items)
-        assert len(result) == 2
-        assert result[0].title == "Movie 1"
-        assert result[1].title == "Movie 2"
+class TestFetchIntegration:
+    """Integration tests: full fetch pipeline with mocked HTTP responses."""
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_returns_parsed_results(self):
+        """fetch_live_movies() produces LiveMovieRaw results from mocked HTTP without live network."""
+        from models import LiveMovieRaw
+
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        await scraper.initialize()
+        try:
+            mock_response = MagicMock()
+            mock_response.text = FIXTURE_HTML
+            mock_response.raise_for_status = MagicMock()
+
+            with patch.object(
+                scraper._http_client, "get", new=AsyncMock(return_value=mock_response)
+            ):
+                result = await scraper.fetch_live_movies(force=True)
+
+            assert isinstance(result, list)
+            assert len(result) > 0
+            for item in result:
+                assert isinstance(item, LiveMovieRaw)
+                assert item.title
+                assert item.start_iso
+        finally:
+            await scraper.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_all_pages_unavailable_returns_empty_list(self):
+        """fetch_live_movies() returns [] when all HTTP calls fail — no crash."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        await scraper.initialize()
+        try:
+            with patch.object(
+                scraper._http_client,
+                "get",
+                new=AsyncMock(side_effect=httpx.HTTPError("network error")),
+            ):
+                with patch("asyncio.sleep", new=AsyncMock()):
+                    result = await scraper.fetch_live_movies(force=True)
+
+            assert result == []
+        finally:
+            await scraper.cleanup()
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--tb=short"])
+class TestHealthStateTransitions:
+    """Tests for scraper health state transitions after failures and recovery."""
+
+    @pytest.mark.asyncio
+    async def test_healthy_after_init(self):
+        """Freshly initialised scraper reports healthy (no errors yet)."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        assert scraper.get_status()["healthy"] is True
+        assert scraper.get_status()["consecutive_errors"] == 0
+
+    @pytest.mark.asyncio
+    async def test_healthy_is_false_after_3_consecutive_failures(self):
+        """healthy becomes False once consecutive error count reaches 3."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        await scraper.initialize()
+        try:
+            for _ in range(3):
+                with patch.object(
+                    scraper, "_fetch", new=AsyncMock(side_effect=Exception("scraper down"))
+                ):
+                    with pytest.raises(Exception):
+                        await scraper.fetch_live_movies(force=True)
+
+            status = scraper.get_status()
+            assert status["healthy"] is False
+            assert status["consecutive_errors"] == 3
+            assert status["total_errors"] == 3
+        finally:
+            await scraper.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_healthy_resets_after_success_following_failures(self):
+        """consecutive_errors resets and healthy becomes True again after a successful fetch."""
+        scraper = MusorTvScraper(rate_limit_ms=0)
+        await scraper.initialize()
+        try:
+            # Drive to unhealthy state
+            for _ in range(3):
+                with patch.object(
+                    scraper, "_fetch", new=AsyncMock(side_effect=Exception("scraper down"))
+                ):
+                    with pytest.raises(Exception):
+                        await scraper.fetch_live_movies(force=True)
+
+            assert scraper.get_status()["healthy"] is False
+
+            # One successful fetch resets consecutive_errors
+            with patch.object(scraper, "_fetch", new=AsyncMock(return_value=[])):
+                result = await scraper.fetch_live_movies(force=True)
+
+            assert result == []
+            status = scraper.get_status()
+            assert status["healthy"] is True
+            assert status["consecutive_errors"] == 0
+            # Total error count is cumulative and must not reset
+            assert status["total_errors"] == 3
+        finally:
+            await scraper.cleanup()

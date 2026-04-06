@@ -1,101 +1,72 @@
-"""Debug script v2 - Find actual program elements."""
-import asyncio
-from playwright.async_api import async_playwright
+"""Debug script v2 — inspect musor.tv program elements using httpx + selectolax."""
+import sys
+import httpx
+from selectolax.parser import HTMLParser
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+FILMEK_URL = "https://musor.tv/filmek"
+TVBEN_URL = "https://musor.tv/most/tvben"
 
 
-async def find_programs(url: str):
-    """Find actual program/show elements."""
+def find_programs(url: str) -> None:
+    """Find actual program/show elements using plain HTTP."""
     print(f"\n{'='*80}")
     print(f"Analyzing: {url}")
-    print('='*80)
-    
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False, args=["--no-sandbox"])  # headless=False to see what's happening
-        page = await browser.new_page()
-        
-        try:
-            print("Loading page...")
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-            
-            # Handle cookies
-            await asyncio.sleep(1)
-            try:
-                btn = page.locator('button:has-text("Elfogadom")').first
-                if await btn.count() > 0:
-                    await btn.click()
-                    print("✓ Cookie accepted")
-                    await asyncio.sleep(3)
-            except:
-                pass
-            
-            # Look for tables (musor.tv likely uses tables for TV schedules)
-            print("\nLooking for tables...")
-            tables = page.locator("table")
-            table_count = await tables.count()
-            print(f"Found {table_count} tables")
-            
-            # Look for program-related elements
-            print("\nSearching for program elements...")
-            program_selectors = [
-                "tr[class*='program']",
-                "tr[class*='show']",
-                "tr[class*='event']",
-                "div[class*='program']",
-                "div[class*='broadcast']",
-                "a[href*='/musor/']",
-                "a[href*='musor']",
-            ]
-            
-            for sel in program_selectors:
-                count = await page.locator(sel).count()
-                if count > 0:
-                    print(f"\n✓ Found {count} elements with selector: {sel}")
-                    
-                    # Get details of first 3 elements
-                    for i in range(min(3, count)):
-                        elem = page.locator(sel).nth(i)
-                        text = await elem.text_content()
-                        classes = await elem.get_attribute("class")
-                        href = await elem.get_attribute("href")
-                        print(f"  [{i}] Classes: {classes}")
-                        if href:
-                            print(f"      Href: {href}")
-                        print(f"      Text: {text[:100] if text else 'N/A'}...")
-            
-            # Get all links and filter for program links
-            print("\n\nAnalyzing all links...")
-            links = page.locator("a")
-            link_count = await links.count()
-            print(f"Total links: {link_count}")
-            
-            program_links = []
-            for i in range(min(50, link_count)):
-                href = await links.nth(i).get_attribute("href")
-                text = await links.nth(i).text_content()
-                if href and ("/musor/" in href or "channel" in href.lower()):
-                    program_links.append((href, text))
-            
-            if program_links:
-                print(f"\nFound {len(program_links)} program-related links:")
-                for href, text in program_links[:10]:
-                    print(f"  {href} - {text[:50] if text else 'N/A'}")
-            
-            # Keep browser open for manual inspection
-            print("\n\n⏸️  Browser window kept open for 30 seconds for manual inspection...")
-            await asyncio.sleep(30)
-            
-        except Exception as e:
-            print(f"ERROR: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            await browser.close()
+    print("="*80)
+
+    try:
+        response = httpx.get(url, headers=HEADERS, timeout=30, follow_redirects=True)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        print(f"HTTP error: {exc}")
+        return
+
+    html = response.text
+    tree = HTMLParser(html)
+    print(f"Status: {response.status_code}  Size: {len(html)} bytes")
+
+    # filmek table entries
+    tables = tree.css("table.showeventtable")
+    print(f"\ntable.showeventtable: {len(tables)} entries")
+    for node in tables[:3]:
+        title_node = node.css_first(".showeventtitle a")
+        time_node = node.css_first(".showeventtime")
+        channel_node = node.css_first(".showeventchannel img")
+        title = title_node.text(strip=True) if title_node else "—"
+        time_text = time_node.text(strip=True) if time_node else "—"
+        channel = channel_node.attributes.get("alt", "—") if channel_node else "—"
+        print(f"  title={title!r}  time={time_text!r}  channel={channel!r}")
+
+    # EPG BroadcastEvent entries (tvben page)
+    events = tree.css("div[itemtype='https://schema.org/BroadcastEvent']")
+    print(f"\nBroadcastEvent entries: {len(events)}")
+    for node in events[:3]:
+        name_node = node.css_first("[itemprop='name']")
+        time_node = node.css_first("time[itemprop='startDate']")
+        name = name_node.text(strip=True) if name_node else "—"
+        start = time_node.attributes.get("content", "—") if time_node else "—"
+        print(f"  name={name!r}  startDate={start!r}")
+
+    # Program-related links (first 10)
+    links = tree.css("a[href*='/musor/']")
+    print(f"\nProgram links (/musor/): {len(links)}")
+    for node in links[:10]:
+        href = node.attributes.get("href", "")
+        text = node.text(strip=True)
+        print(f"  href={href!r}  text={text!r}")
 
 
-async def main():
-    """Run analysis."""
-    await find_programs("https://musor.tv/filmek")
+def main() -> None:
+    find_programs(FILMEK_URL)
+    find_programs(TVBEN_URL)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

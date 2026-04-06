@@ -1,53 +1,56 @@
-"""Simple HTML dumper to see actual page structure."""
-import asyncio
-from playwright.async_api import async_playwright
+"""Dump live musor.tv HTML to file using plain HTTP (httpx).
+
+Usage:
+    python debug/dump_html.py
+
+Outputs:
+    /tmp/musor_filmek.html
+    /tmp/musor_tvben.html
+"""
+import pathlib
+import httpx
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+PAGES = {
+    "filmek": "https://musor.tv/filmek",
+    "tvben": "https://musor.tv/most/tvben",
+}
 
 
-async def dump_html(url: str):
-    """Dump full HTML after page loads."""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
-        page = await browser.new_page()
-        
-        try:
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-            
-            # Accept cookies
-            await asyncio.sleep(1)
-            try:
-                await page.click('button:has-text("Elfogadom")', timeout=2000)
-                await asyncio.sleep(3)
-            except:
-                pass
-            
-            # Get full HTML
-            html = await page.content()
-            
-            # Save to file
-            filename = f"/tmp/musor_{url.split('/')[-1]}.html"
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(html)
-            
-            print(f"✓ Saved HTML to: {filename}")
-            print(f"  Size: {len(html)} bytes")
-            
-            # Look for anything that might be a program listing
-            if "program" in html.lower():
-                print("  Found 'program' in HTML")
-            if "film" in html.lower():
-                count = html.lower().count("film")
-                print(f"  Found 'film' {count} times in HTML")
-            if "channel" in html.lower() or "csatorna" in html.lower():
-                print("  Found channel references")
-                
-        finally:
-            await browser.close()
+def dump_html(name: str, url: str) -> None:
+    """Fetch URL and save HTML to /tmp."""
+    try:
+        response = httpx.get(url, headers=HEADERS, timeout=30, follow_redirects=True)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        print(f"✗ {url}: {exc}")
+        return
+
+    html = response.text
+    filename = pathlib.Path(f"/tmp/musor_{name}.html")
+    filename.write_text(html, encoding="utf-8")
+
+    print(f"✓ {url}")
+    print(f"  Saved: {filename}")
+    print(f"  Size:  {len(html)} bytes  ({len(html)//1024} KB)")
+
+    for keyword in ("showeventtable", "BroadcastEvent", "film", "csatorna"):
+        count = html.lower().count(keyword.lower())
+        if count:
+            print(f"  '{keyword}' occurrences: {count}")
 
 
-async def main():
-    await dump_html("https://musor.tv/filmek")
-    await dump_html("https://musor.tv/most/tvben")
+def main() -> None:
+    for name, url in PAGES.items():
+        dump_html(name, url)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
