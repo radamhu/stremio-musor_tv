@@ -194,7 +194,17 @@ class MusorTvScraper:
 
 # Singleton instance
 _scraper_instance: Optional[MusorTvScraper] = None
-_scraper_lock = asyncio.Lock()
+_scraper_lock: Optional[asyncio.Lock] = None
+
+
+def _get_scraper_lock() -> asyncio.Lock:
+    """Lazily create a lock bound to the active event loop."""
+    global _scraper_lock
+    current_loop = asyncio.get_running_loop()
+    lock_loop = getattr(_scraper_lock, "_loop", None) if _scraper_lock else None
+    if _scraper_lock is None or (lock_loop is not None and lock_loop is not current_loop):
+        _scraper_lock = asyncio.Lock()
+    return _scraper_lock
 
 
 async def get_scraper() -> MusorTvScraper:
@@ -205,7 +215,7 @@ async def get_scraper() -> MusorTvScraper:
     """
     global _scraper_instance
     
-    async with _scraper_lock:
+    async with _get_scraper_lock():
         if _scraper_instance is None:
             _scraper_instance = MusorTvScraper(rate_limit_ms=RATE_MS)
             await _scraper_instance.initialize()
@@ -216,7 +226,7 @@ async def cleanup_scraper() -> None:
     """Cleanup the singleton scraper instance."""
     global _scraper_instance
     
-    async with _scraper_lock:
+    async with _get_scraper_lock():
         if _scraper_instance is not None:
             await _scraper_instance.cleanup()
             _scraper_instance = None
@@ -245,7 +255,7 @@ async def get_scraper_status() -> Dict[str, Any]:
     """
     global _scraper_instance
     
-    async with _scraper_lock:
+    async with _get_scraper_lock():
         if _scraper_instance is None:
             return {
                 "healthy": False,
