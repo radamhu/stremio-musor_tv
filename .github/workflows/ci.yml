@@ -84,6 +84,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import urllib.error
           import urllib.request
 
           tests_result = os.environ["TESTS_RESULT"]
@@ -108,5 +109,13 @@ jobs:
               data=json.dumps({"content": content}).encode("utf-8"),
               headers={"Content-Type": "application/json"},
           )
-          urllib.request.urlopen(req).read()
+          try:
+              with urllib.request.urlopen(req, timeout=10) as response:
+                  response.read()
+          except urllib.error.HTTPError as exc:
+              print(
+                  f"::warning::Discord notification skipped due to HTTP {exc.code}: {exc.reason}"
+              )
+          except urllib.error.URLError as exc:
+              print(f"::warning::Discord notification skipped due to network error: {exc}")
           PY
