@@ -268,7 +268,7 @@ async def root(request: Request):
             </ul>
         </div>
         
-        <a href="stremio://{base_url}/manifest.json" class="install-btn">
+        <a href="stremio://{base_url.removeprefix('https://').removeprefix('http://')}/manifest.json" class="install-btn">
             📺 INSTALL IN STREMIO
         </a>
         
