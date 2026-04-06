@@ -868,6 +868,20 @@ If you need to return to the Playwright build:
 
 ---
 
+## GitHub Notifications
+
+GitHub Actions can post CI and Dependabot automation status to Discord.
+
+Configure this as a GitHub repository secret:
+1. Open `Settings -> Secrets and variables -> Actions`
+2. Add `DISCORD_WEBHOOK_URL`
+
+Current notification behavior:
+- `CI` sends a Discord summary for non-PR workflow runs
+- `Dependabot Auto Merge` sends a Discord summary when a Dependabot PR is eligible for auto-merge, fails in the auto-merge flow, or is skipped
+
+---
+
 ## 🎯 Roadmap
 
 ### Completed ✅
