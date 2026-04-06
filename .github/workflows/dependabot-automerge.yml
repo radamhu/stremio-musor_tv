@@ -106,11 +106,12 @@ jobs:
     needs:
       - prepare
       - approve-and-merge
-    if: always() && secrets.DISCORD_WEBHOOK_URL != ''
+    if: always()
     runs-on: ubuntu-latest
 
     steps:
       - name: Send Dependabot status to Discord
+        if: env.DISCORD_WEBHOOK_URL != ''
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           REPOSITORY: ${{ github.repository }}
