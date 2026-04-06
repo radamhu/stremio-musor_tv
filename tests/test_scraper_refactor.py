@@ -1,6 +1,7 @@
 """
 Tests for scraper refactor: httpx-based scraper, retry behavior, and integration mocks.
 """
+import asyncio
 import sys
 import pathlib
 import pytest
@@ -102,6 +103,24 @@ class TestScraperRefactoring:
             assert scraper1._http_client is not None
         finally:
             await cleanup_scraper()
+
+    def test_singleton_recreates_instance_across_event_loops(self):
+        """Singleton state must not leak loop-bound resources across event loops."""
+
+        async def get_ids():
+            scraper = await get_scraper()
+            return id(scraper), id(scraper._fetch_lock), scraper._http_client is not None
+
+        try:
+            first = asyncio.run(get_ids())
+            second = asyncio.run(get_ids())
+
+            assert first[2] is True
+            assert second[2] is True
+            assert first[0] != second[0]
+            assert first[1] != second[1]
+        finally:
+            asyncio.run(cleanup_scraper())
 
 
 class TestGetPageRetryBehavior:
