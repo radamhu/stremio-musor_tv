@@ -25,7 +25,9 @@ def compute_window(preset: Optional[TimePreset] = None, now: Optional[datetime] 
     preset = preset or "now"
     
     if preset == "now":
-        end = start + timedelta(minutes=90)
+        # Go back up to 3 hours so currently-airing movies (started before now) are included
+        start = tz_now - timedelta(hours=3)
+        end = tz_now + timedelta(minutes=90)
     elif preset == "next2h":
         end = start + timedelta(hours=2)
     elif preset == "tonight":
