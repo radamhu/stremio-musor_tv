@@ -21,6 +21,9 @@ services:
         value: 7
       - key: IMDB_RATE_LIMIT_PER_SEC
         value: 40
+      - key: BASE_URL
+        value: https://stremio-musor-tv-latest.onrender.com
       - key: TMDB_API_KEY
         sync: false
+    healthCheckPath: /healthz
     plan: free

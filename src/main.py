@@ -67,7 +67,7 @@ app.add_middleware(
 )
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root(request: Request):
     """Root endpoint - HTML landing page."""
     from fastapi.responses import HTMLResponse
@@ -75,9 +75,11 @@ async def root(request: Request):
     # Get the base URL dynamically from the request or environment variable
     base_url = os.getenv("BASE_URL")
     if not base_url:
-        # Construct from request
-        scheme = request.url.scheme
         netloc = request.url.netloc
+        # Honour X-Forwarded-Proto set by reverse proxies (e.g. Render, nginx)
+        # so the install link uses https:// even when the internal hop is http.
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        scheme = forwarded_proto or request.url.scheme
         base_url = f"{scheme}://{netloc}"
     
     html_content = f"""
@@ -291,7 +293,7 @@ async def root(request: Request):
     return HTMLResponse(content=html_content)
 
 
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 async def health_check():
     """Health check endpoint with scraper and IMDb lookup status."""
     import time
