@@ -34,7 +34,9 @@ class MusorTvScraper:
         self._rate_limit_ms = rate_limit_ms
         self._http_client: Optional[httpx.AsyncClient] = None
         self._last_fetch_at: float = 0
-        self._fetch_lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._fetch_lock: Optional[asyncio.Lock] = None
+        self._fetch_lock_loop: Optional[asyncio.AbstractEventLoop] = None
         self._in_flight_task: Optional[asyncio.Task] = None
         
         # Status tracking for health monitoring
@@ -43,9 +45,29 @@ class MusorTvScraper:
         self._last_error: Optional[str] = None
         self._total_error_count: int = 0
         self._consecutive_error_count: int = 0
+
+    def _bind_to_current_loop(self) -> None:
+        """Recreate loop-bound state when accessed from a new event loop."""
+        current_loop = asyncio.get_running_loop()
+        if self._loop is current_loop:
+            return
+
+        self._loop = current_loop
+        self._fetch_lock = asyncio.Lock()
+        self._fetch_lock_loop = current_loop
+        self._in_flight_task = None
+        self._http_client = None
+
+    def is_bound_to_current_loop(self) -> bool:
+        """Whether this scraper instance belongs to the active event loop."""
+        try:
+            return self._loop is asyncio.get_running_loop()
+        except RuntimeError:
+            return False
         
     async def initialize(self) -> None:
         """Initialize the HTTP client."""
+        self._bind_to_current_loop()
         if self._http_client is None:
             logger.info("Initializing httpx client...")
             self._http_client = httpx.AsyncClient(
@@ -57,6 +79,7 @@ class MusorTvScraper:
     
     async def cleanup(self) -> None:
         """Cleanup HTTP client resources."""
+        self._bind_to_current_loop()
         if self._http_client:
             logger.info("Closing HTTP client...")
             await self._http_client.aclose()
@@ -71,6 +94,9 @@ class MusorTvScraper:
         Returns:
             List of LiveMovieRaw objects
         """
+        self._bind_to_current_loop()
+        assert self._fetch_lock is not None
+
         async with self._fetch_lock:
             now = asyncio.get_event_loop().time() * 1000
             
@@ -194,7 +220,19 @@ class MusorTvScraper:
 
 # Singleton instance
 _scraper_instance: Optional[MusorTvScraper] = None
-_scraper_lock = asyncio.Lock()
+_scraper_lock: Optional[asyncio.Lock] = None
+_scraper_loop: Optional[asyncio.AbstractEventLoop] = None
+_scraper_lock_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _get_scraper_lock() -> asyncio.Lock:
+    """Lazily create a lock bound to the active event loop."""
+    global _scraper_lock, _scraper_lock_loop
+    current_loop = asyncio.get_running_loop()
+    if _scraper_lock is None or _scraper_lock_loop is not current_loop:
+        _scraper_lock = asyncio.Lock()
+        _scraper_lock_loop = current_loop
+    return _scraper_lock
 
 
 async def get_scraper() -> MusorTvScraper:
@@ -203,23 +241,31 @@ async def get_scraper() -> MusorTvScraper:
     Returns:
         MusorTvScraper instance
     """
-    global _scraper_instance
+    global _scraper_instance, _scraper_loop
     
-    async with _scraper_lock:
-        if _scraper_instance is None:
+    async with _get_scraper_lock():
+        current_loop = asyncio.get_running_loop()
+        if (
+            _scraper_instance is None
+            or _scraper_loop is not current_loop
+            or not _scraper_instance.is_bound_to_current_loop()
+        ):
             _scraper_instance = MusorTvScraper(rate_limit_ms=RATE_MS)
+            _scraper_loop = current_loop
             await _scraper_instance.initialize()
         return _scraper_instance
 
 
 async def cleanup_scraper() -> None:
     """Cleanup the singleton scraper instance."""
-    global _scraper_instance
+    global _scraper_instance, _scraper_loop
     
-    async with _scraper_lock:
+    async with _get_scraper_lock():
         if _scraper_instance is not None:
-            await _scraper_instance.cleanup()
+            if _scraper_loop is asyncio.get_running_loop():
+                await _scraper_instance.cleanup()
             _scraper_instance = None
+            _scraper_loop = None
 
 
 async def fetch_live_movies(force: bool = False) -> List[LiveMovieRaw]:
@@ -245,7 +291,7 @@ async def get_scraper_status() -> Dict[str, Any]:
     """
     global _scraper_instance
     
-    async with _scraper_lock:
+    async with _get_scraper_lock():
         if _scraper_instance is None:
             return {
                 "healthy": False,

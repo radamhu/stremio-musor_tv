@@ -18,18 +18,47 @@ from imdb_cache import get_cached_imdb_id, set_cached_imdb_id, get_cache_stats
 logger = logging.getLogger(__name__)
 
 
-# Configuration from environment
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
-IMDB_LOOKUP_ENABLED = os.getenv("IMDB_LOOKUP_ENABLED", "true").lower() == "true"
-IMDB_RATE_LIMIT_PER_SEC = int(os.getenv("IMDB_RATE_LIMIT_PER_SEC", "40"))
-
-# Detect if using Bearer token (JWT) or API key
-IS_BEARER_TOKEN = TMDB_API_KEY.startswith("eyJ") if TMDB_API_KEY else False
-
-# Rate limiting
-_rate_limit_semaphore = asyncio.Semaphore(IMDB_RATE_LIMIT_PER_SEC)
 _last_request_time = 0.0
+_rate_limit_semaphore: Optional[asyncio.Semaphore] = None
+_rate_limit_capacity: Optional[int] = None
+
+
+def _get_tmdb_api_key() -> str:
+    """Read the current TMDB credential from the environment."""
+    return os.getenv("TMDB_API_KEY", "")
+
+
+def _is_lookup_enabled_flag() -> bool:
+    """Read the current IMDb lookup feature flag from the environment."""
+    return os.getenv("IMDB_LOOKUP_ENABLED", "true").lower() == "true"
+
+
+def _get_rate_limit_per_sec() -> int:
+    """Read the current TMDB rate limit from the environment."""
+    return int(os.getenv("IMDB_RATE_LIMIT_PER_SEC", "40"))
+
+
+def _is_bearer_token(api_key: str) -> bool:
+    """Detect whether the configured TMDB credential is a bearer token."""
+    return api_key.startswith("eyJ") if api_key else False
+
+
+def _get_rate_limit_semaphore() -> asyncio.Semaphore:
+    """Lazily create a semaphore bound to the active event loop."""
+    global _rate_limit_semaphore, _rate_limit_capacity
+
+    current_loop = asyncio.get_running_loop()
+    rate_limit = _get_rate_limit_per_sec()
+    semaphore_loop = getattr(_rate_limit_semaphore, "_loop", None) if _rate_limit_semaphore else None
+    if (
+        _rate_limit_semaphore is None or
+        _rate_limit_capacity != rate_limit or
+        (semaphore_loop is not None and semaphore_loop is not current_loop)
+    ):
+        _rate_limit_semaphore = asyncio.Semaphore(rate_limit)
+        _rate_limit_capacity = rate_limit
+    return _rate_limit_semaphore
 
 
 async def _rate_limited_request(url: str, params: Dict) -> Optional[Dict]:
@@ -44,21 +73,24 @@ async def _rate_limited_request(url: str, params: Dict) -> Optional[Dict]:
     """
     global _last_request_time
     
-    async with _rate_limit_semaphore:
+    api_key = _get_tmdb_api_key()
+    rate_limit = _get_rate_limit_per_sec()
+
+    async with _get_rate_limit_semaphore():
         # Ensure we don't exceed rate limit
         now = asyncio.get_event_loop().time()
         time_since_last = now - _last_request_time
-        if time_since_last < (1.0 / IMDB_RATE_LIMIT_PER_SEC):
-            await asyncio.sleep((1.0 / IMDB_RATE_LIMIT_PER_SEC) - time_since_last)
+        if time_since_last < (1.0 / rate_limit):
+            await asyncio.sleep((1.0 / rate_limit) - time_since_last)
         
         try:
             # Prepare headers (Bearer token or API key in params)
             headers = {}
             request_params = params.copy()
             
-            if IS_BEARER_TOKEN:
+            if _is_bearer_token(api_key):
                 # Use Bearer token in Authorization header
-                headers["Authorization"] = f"Bearer {TMDB_API_KEY}"
+                headers["Authorization"] = f"Bearer {api_key}"
                 # Remove api_key from params if present
                 request_params.pop("api_key", None)
             
@@ -102,8 +134,9 @@ async def _search_movie_tmdb(title: str, year: Optional[int] = None, language: s
         TMDB movie ID or None if not found
     """
     url = f"{TMDB_BASE_URL}/search/movie"
+    api_key = _get_tmdb_api_key()
     params = {
-        "api_key": TMDB_API_KEY,
+        "api_key": api_key,
         "query": title,
         "language": language,
     }
@@ -134,7 +167,7 @@ async def _get_imdb_id_from_tmdb(tmdb_id: int) -> Optional[str]:
         IMDb ID (e.g., "tt0133093") or None
     """
     url = f"{TMDB_BASE_URL}/movie/{tmdb_id}/external_ids"
-    params = {"api_key": TMDB_API_KEY}
+    params = {"api_key": _get_tmdb_api_key()}
     
     data = await _rate_limited_request(url, params)
     
@@ -158,7 +191,7 @@ async def _get_movie_details_from_tmdb(tmdb_id: int) -> Optional[Dict[str, Any]]
         Dict with movie details including poster_path, or None
     """
     url = f"{TMDB_BASE_URL}/movie/{tmdb_id}"
-    params = {"api_key": TMDB_API_KEY}
+    params = {"api_key": _get_tmdb_api_key()}
     
     data = await _rate_limited_request(url, params)
     return data
@@ -188,10 +221,60 @@ async def lookup_imdb_id(
         >>> print(imdb_id)
         "tt0133093"
     """
-    result = await lookup_imdb_data(title, year, language)
-    if result and isinstance(result, dict):
-        return result.get("imdb_id")
+    result = await _lookup_imdb_core(title, year, language)
+    if result:
+        return result[1]
     return None
+
+
+async def _lookup_imdb_core(
+    title: str,
+    year: Optional[int] = None,
+    language: str = "hu-HU",
+) -> Optional[Tuple[str, int]]:
+    """Perform the minimal TMDB lookup flow needed to resolve an IMDb ID."""
+    # Check if lookup is enabled
+    if not _is_lookup_enabled_flag():
+        logger.debug("IMDb lookup disabled via IMDB_LOOKUP_ENABLED")
+        return None
+
+    # Check if API key is configured
+    if not _get_tmdb_api_key():
+        logger.debug("IMDb lookup skipped - no TMDB_API_KEY configured")
+        return None
+
+    normalized_title = title.strip()
+
+    try:
+        cached_result = get_cached_imdb_id(normalized_title, year)
+        if cached_result:
+            return normalized_title, cached_result
+        if cached_result is None:
+            return None
+    except KeyError:
+        pass
+
+    logger.debug(f"Looking up IMDb ID for '{normalized_title}' (year: {year})")
+
+    try:
+        tmdb_id = await _search_movie_tmdb(normalized_title, year, language)
+        if not tmdb_id:
+            logger.debug(f"No TMDB results for '{normalized_title}'")
+            set_cached_imdb_id(normalized_title, year, None)
+            return None
+
+        imdb_id = await _get_imdb_id_from_tmdb(tmdb_id)
+        set_cached_imdb_id(normalized_title, year, imdb_id)
+
+        if not imdb_id:
+            logger.debug(f"No IMDb ID found for TMDB movie {tmdb_id}")
+            return None
+
+        logger.info(f"Found IMDb ID {imdb_id} for '{normalized_title}'")
+        return normalized_title, imdb_id
+    except Exception as e:
+        logger.error(f"Unexpected error during IMDb lookup for '{normalized_title}': {e}")
+        return None
 
 
 async def lookup_imdb_data(
@@ -217,82 +300,26 @@ async def lookup_imdb_data(
         >>> print(data)
         {"imdb_id": "tt0133093", "poster_url": "https://image.tmdb.org/..."}
     """
-    # Check if lookup is enabled
-    if not IMDB_LOOKUP_ENABLED:
-        logger.debug("IMDb lookup disabled via IMDB_LOOKUP_ENABLED")
+    core_result = await _lookup_imdb_core(title, year, language)
+    if not core_result:
         return None
-    
-    # Check if API key is configured
-    if not TMDB_API_KEY:
-        logger.debug("IMDb lookup skipped - no TMDB_API_KEY configured")
-        return None
-    
-    # Normalize title for better matching
-    normalized_title = title.strip()
-    
-    # Check cache first (only for IMDb ID, not full data yet)
+
+    normalized_title, imdb_id = core_result
+    poster_url = None
+
     try:
-        cached_result = get_cached_imdb_id(normalized_title, year)
-        if cached_result:
-            # We have cached IMDb ID, but need to get poster separately
-            # For now, just return the ID - poster caching could be added later
-            return {"imdb_id": cached_result, "poster_url": None}
-        elif cached_result is None:
-            # Cached failed lookup
-            return None
-    except KeyError:
-        # Not in cache, proceed with API lookup
-        pass
-    
-    logger.debug(f"Looking up IMDb data for '{normalized_title}' (year: {year})")
-    
-    try:
-        # Step 1: Search for movie on TMDB
         tmdb_id = await _search_movie_tmdb(normalized_title, year, language)
-        
-        if not tmdb_id:
-            logger.debug(f"No TMDB results for '{normalized_title}'")
-            # Cache the failed lookup to avoid repeated API calls
-            set_cached_imdb_id(normalized_title, year, None)
-            return None
-        
-        # Step 2: Get full movie details (includes external IDs and poster)
-        details = await _get_movie_details_from_tmdb(tmdb_id)
-        
-        if not details:
-            logger.debug(f"No details found for TMDB movie {tmdb_id}")
-            set_cached_imdb_id(normalized_title, year, None)
-            return None
-        
-        # Step 3: Get IMDb ID from external IDs endpoint
-        imdb_id = await _get_imdb_id_from_tmdb(tmdb_id)
-        
-        # Step 4: Build poster URL if available
-        poster_url = None
-        if details.get("poster_path"):
-            # TMDB poster URLs: https://image.tmdb.org/t/p/{size}{poster_path}
-            # Using w500 for good quality
-            poster_url = f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
-        
-        if imdb_id:
-            logger.info(f"Found IMDb ID {imdb_id} for '{normalized_title}' with poster: {bool(poster_url)}")
-        else:
-            logger.debug(f"No IMDb ID found for TMDB movie {tmdb_id}")
-        
-        # Cache the IMDb ID result (even if None)
-        set_cached_imdb_id(normalized_title, year, imdb_id)
-        
-        if not imdb_id:
-            return None
-        
-        return {
-            "imdb_id": imdb_id,
-            "poster_url": poster_url
-        }
-        
+        if tmdb_id:
+            details = await _get_movie_details_from_tmdb(tmdb_id)
+            if details and details.get("poster_path"):
+                poster_url = f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
     except Exception as e:
-        logger.error(f"Unexpected error during IMDb lookup for '{normalized_title}': {e}")
-        return None
+        logger.warning(f"Poster lookup failed for '{normalized_title}': {e}")
+
+    return {
+        "imdb_id": imdb_id,
+        "poster_url": poster_url,
+    }
 
 
 async def batch_lookup_imdb_ids(
@@ -315,7 +342,7 @@ async def batch_lookup_imdb_ids(
         >>> print(results)
         {"Matrix": "tt0133093", "Inception": "tt1375666"}
     """
-    if not IMDB_LOOKUP_ENABLED or not TMDB_API_KEY:
+    if not _is_lookup_enabled_flag() or not _get_tmdb_api_key():
         return {title: None for title, _ in movies}
     
     logger.info(f"Batch lookup for {len(movies)} movies")
@@ -347,7 +374,7 @@ def is_lookup_enabled() -> bool:
     Returns:
         True if TMDB API key is set and lookup is enabled
     """
-    return IMDB_LOOKUP_ENABLED and bool(TMDB_API_KEY)
+    return _is_lookup_enabled_flag() and bool(_get_tmdb_api_key())
 
 
 def get_api_status() -> Dict[str, Any]:
@@ -358,9 +385,9 @@ def get_api_status() -> Dict[str, Any]:
     """
     cache_stats = get_cache_stats()
     return {
-        "enabled": IMDB_LOOKUP_ENABLED,
-        "api_key_configured": bool(TMDB_API_KEY),
-        "rate_limit": IMDB_RATE_LIMIT_PER_SEC,
+        "enabled": _is_lookup_enabled_flag(),
+        "api_key_configured": bool(_get_tmdb_api_key()),
+        "rate_limit": _get_rate_limit_per_sec(),
         "base_url": TMDB_BASE_URL,
         "cache": cache_stats,
     }

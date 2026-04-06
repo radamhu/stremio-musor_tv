@@ -18,6 +18,9 @@ jobs:
     outputs:
       should_merge: ${{ steps.pr.outputs.should_merge }}
       pr_number: ${{ steps.pr.outputs.pr_number }}
+      pr_title: ${{ steps.pr.outputs.pr_title }}
+      pr_url: ${{ steps.pr.outputs.pr_url }}
+      author: ${{ steps.pr.outputs.author }}
     steps:
       - name: Resolve pull request context
         id: pr
@@ -49,6 +52,9 @@ jobs:
             );
 
             core.setOutput("pr_number", String(prNumber));
+            core.setOutput("pr_title", pr.title || "");
+            core.setOutput("pr_url", pr.html_url || "");
+            core.setOutput("author", pr.user?.login || "");
             core.setOutput(
               "should_merge",
               String(ciSucceeded && isDependabot && targetsMain && isOpen && !isDraft)
@@ -94,3 +100,64 @@ jobs:
           steps.metadata.outputs.update-type != 'version-update:semver-patch' &&
           steps.metadata.outputs.update-type != 'version-update:semver-minor'
         run: echo "Skipping auto-merge for update type: ${{ steps.metadata.outputs.update-type }}"
+
+  notify-discord:
+    name: Notify Discord
+    needs:
+      - prepare
+      - approve-and-merge
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Dependabot status to Discord
+        if: env.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          PR_TITLE: ${{ needs.prepare.outputs.pr_title }}
+          PR_URL: ${{ needs.prepare.outputs.pr_url }}
+          PR_AUTHOR: ${{ needs.prepare.outputs.author }}
+          SHOULD_MERGE: ${{ needs.prepare.outputs.should_merge }}
+          MERGE_JOB_RESULT: ${{ needs.approve-and-merge.result }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          pr_number = os.environ.get("PR_NUMBER", "")
+          if not pr_number:
+              raise SystemExit(0)
+
+          should_merge = os.environ["SHOULD_MERGE"] == "true"
+          merge_result = os.environ["MERGE_JOB_RESULT"]
+          run_url = f"https://github.com/{os.environ['REPOSITORY']}/actions/runs/{os.environ['RUN_ID']}"
+
+          if should_merge and merge_result == "success":
+              emoji = "✅"
+              status = "Dependabot auto-merge enabled"
+          elif should_merge and merge_result != "success":
+              emoji = "❌"
+              status = f"Dependabot auto-merge failed ({merge_result})"
+          else:
+              emoji = "ℹ️"
+              status = "Dependabot PR skipped"
+
+          content = (
+              f"{emoji} {status} for {os.environ['REPOSITORY']}\n"
+              f"PR #{pr_number}: {os.environ['PR_TITLE']}\n"
+              f"Author: {os.environ['PR_AUTHOR']}\n"
+              f"URL: {os.environ['PR_URL']}\n"
+              f"Run: {run_url}"
+          )
+
+          req = urllib.request.Request(
+              os.environ["DISCORD_WEBHOOK_URL"],
+              data=json.dumps({"content": content}).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+          )
+          urllib.request.urlopen(req).read()
+          PY
