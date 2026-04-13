@@ -6,7 +6,7 @@ cachetools==5.5.0
 pydantic==2.9.2
 python-dotenv==1.0.1
 rich==13.7.1  # Rich logging and console output
-aiohttp==3.9.5  # Async HTTP client for TMDB API
+aiohttp==3.13.5  # Async HTTP client for TMDB API
 selectolax==0.3.21  # Fast CSS selector HTML parser for lightweight scraping
 
 # Development/Testing dependencies (optional)
