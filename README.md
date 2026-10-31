@@ -1,577 +1,154 @@
-# Stremio HU Live Movies Addon
+# HU Live Movies for Stremio
 
-[![Build and Push](https://github.com/radamhu/stremio-musor_tv/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)](https://github.com/radamhu/stremio-musor_tv/actions)
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/radamhu/stremio-musor_tv/pkgs/container/stremio-musor-tv)
+[![CI](https://github.com/radamhu/stremio-musor_tv/actions/workflows/ci.yml/badge.svg)](https://github.com/radamhu/stremio-musor_tv/actions/workflows/ci.yml)
+[![Docker](https://github.com/radamhu/stremio-musor_tv/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/radamhu/stremio-musor_tv/pkgs/container/stremio-musor-tv)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg?logo=python)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
 
-A **catalog-only Stremio addon** that discovers movies currently airing or scheduled on Hungarian TV channels. This addon scrapes real-time TV listings from [musor.tv](https://musor.tv) and provides IMDb-matched metadata, enabling seamless integration with your favorite stream provider addons (Torrentio, MediaFusion, etc.).
+A catalog-only [Stremio](https://www.stremio.com/) addon that shows which movies are airing on Hungarian TV. It reads live listings from [musor.tv](https://musor.tv) and matches titles to IMDb ids, so stream addons such as Torrentio or MediaFusion can pick them up.
 
-## 🎯 Purpose
+It is not a streaming provider and serves no video.
 
-This addon integrates with the Stremio media center to allow users to:
-- **Discover** movies currently playing on Hungarian TV
-- Filter by time windows (now playing, next 2 hours, tonight)
-- Search for specific titles (with accent-insensitive Hungarian text support)
-- View movie metadata including start times, channels, genres, and posters
-- **Get IMDb IDs** for automatic stream matching with other addons
+<p align="center">
+  <img src="docs/images/landing.png" alt="Addon landing page with Install in Stremio button" width="720">
+</p>
 
-**Architecture Philosophy: Catalog-Only Design**
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/catalog.png" alt="Live catalog response for the tonight preset"></td>
+    <td width="50%"><img src="docs/images/manifest.png" alt="Live manifest.json response"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Catalog (<code>?time=tonight</code>)</sub></td>
+    <td align="center"><sub>Manifest</sub></td>
+  </tr>
+</table>
 
-This is a **discovery addon**, not a streaming addon. It answers "What's on TV?" and provides IMDb IDs so your stream provider addons (like Torrentio, Comet, MediaFusion) can automatically provide torrents or direct streams.
+<sub>Screenshots captured from the live deployment at <code>https://stremio-musor-tv-latest.onrender.com</code>.</sub>
 
-**Benefits:**
-- ✅ **Separation of concerns** - We discover, others stream
-- ✅ **User choice** - Pick your preferred stream sources
-- ✅ **Legal clarity** - Just TV schedule info, no streaming URLs
-- ✅ **Better quality** - Stream addons provide HD torrents vs. live TV quality
-- ✅ **Flexibility** - Works with any stream provider addon in the ecosystem
+## Table of contents
 
-The addon exposes HTTP/JSON endpoints that comply with the Stremio addon protocol, making Hungarian live TV content discoverable within the Stremio interface.
+- [Features](#features)
+- [Install](#install)
+- [How it works](#how-it-works)
+- [Run it yourself](#run-it-yourself)
+- [Configuration](#configuration)
+- [API](#api)
+- [Testing](#testing)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Roadmap](#roadmap)
+- [License](#license)
 
-## 📢 Recent Updates
+## Features
 
-### 🎬 IMDb Integration (Oct 25, 2025)
-**Major Feature**: Added automatic IMDb ID lookup for Hungarian TV movies using TMDB API.
+- Movies airing now, in the next 2 hours, or tonight
+- Accent-insensitive Hungarian search (`matrix` finds `Mátrix`)
+- IMDb ids via TMDB (optional), so stream addons recognise the titles
+- Poster, channel, start time and genre on every entry
+- Stateless, about 62 MB RAM, no browser runtime
+- Degrades to empty or partial results if musor.tv or TMDB is down
 
-**What's New:**
-- Movies now get matched to their IMDb IDs automatically
-- Works seamlessly with stream provider addons (Torrentio, etc.)
-- **Success rate: ~75%** for popular international movies
-- Intelligent caching (7-day TTL) to minimize API calls
-- Falls back gracefully to custom IDs when IMDb match not found
-- Supports both TMDB API keys and Bearer tokens (JWT)
+## Install
 
-**How It Works:**
-```
-Hungarian TV listing → TMDB API lookup → IMDb ID → Your stream addons recognize it!
-Example: "Mátrix" on RTL → tt0133093 → Torrentio provides torrents ✅
-```
+Use the hosted instance or your own deployment.
 
-**Setup (Optional but Recommended):**
-1. Get free TMDB API key: https://www.themoviedb.org/settings/api
-2. Add to `.env`: `TMDB_API_KEY=your_key_here`
-3. Restart addon
-4. Enjoy better stream matching!
+1. Open Stremio, go to Addons, then Community Addons.
+2. Paste the manifest URL and install:
+   ```
+   https://stremio-musor-tv-latest.onrender.com/manifest.json
+   ```
+3. Browse Movies, open the **Live on TV (HU)** catalog.
+4. Install a stream addon (Torrentio, MediaFusion, Comet) to play what you find.
 
-📖 **Documentation:** [IMDb Lookup Spec](docs/IMDB_LOOKUP_SPEC.md)
+The free Render instance sleeps when idle; the first request can take around a minute.
 
-### 📺 Meta Endpoint Support (Oct 21, 2025)
-**Enhancement**: Added `/meta/{type}/{id}.json` endpoint for detailed movie information.
-
-**Benefits:**
-- Users see rich movie details when clicking catalog entries
-- No more "no information found about this" errors
-- Shows channel, broadcast time, genre, and poster images
-- Works with both IMDb IDs and custom musortv IDs
-
-📖 **Documentation:** [Meta Endpoint Implementation](docs/META_ENDPOINT_IMPLEMENTATION.md)
-
-### ✅ Midnight Boundary Fix (Oct 18, 2025)
-Fixed a bug where late-night programs (00:00-06:00) were incorrectly dated when scraped in the evening. The time parser now uses a 12-hour threshold to detect midnight boundary crossings, ensuring programs after midnight appear in the correct time windows.
-
-**Impact:** Users browsing at 23:00 will now correctly see movies scheduled for 01:00 as "upcoming" rather than "22 hours ago".
-
-📖 **Documentation:** [MIDNIGHT_BOUNDARY_FIX.md](docs/MIDNIGHT_BOUNDARY_FIX.md) | [IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)
-
-## 🏗️ Architecture Overview
-
-### System Design: Catalog-Only Addon
+## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      STREMIO CLIENT                              │
-│                  (User's media center)                           │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            │ User searches "matrix"
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│               THIS ADDON (Catalog/Meta Only)                     │
-│                                                                  │
-│  GET /catalog/movie/hu-live.json?search=matrix                  │
-│  Returns: [{id: "tt0133093", name: "Mátrix", ...}]              │
-│                                                                  │
-│  GET /meta/movie/tt0133093.json                                 │
-│  Returns: {poster, description, genres, "RTL 20:00", ...}       │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            │ IMDb ID: tt0133093
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│            STREAM PROVIDER ADDONS (User's choice)                │
-│                                                                  │
-│  Torrentio:   GET /stream/movie/tt0133093.json                  │
-│               Returns: [1080p torrent, 720p torrent, ...]       │
-│                                                                  │
-│  MediaFusion: GET /stream/movie/tt0133093.json                  │
-│               Returns: [Debrid links, ...]                      │
-│                                                                  │
-│  Comet:       GET /stream/movie/tt0133093.json                  │
-│               Returns: [RD cached torrents, ...]                │
-└─────────────────────────────────────────────────────────────────┘
-
-User Experience:
-1. User searches "matrix" → Finds "Mátrix on RTL at 20:00"
-2. Clicks on movie → Sees full details (poster, description, channel)
-3. Clicks "Watch" → Torrentio/other addons provide HD streams ✅
+Stremio ──► this addon (catalog + meta) ──► IMDb id ──► your stream addons ──► playback
+                 │
+                 └── musor.tv (scrape) + TMDB (id lookup, optional)
 ```
 
-### Data Flow Architecture
+- Titles matched to IMDb get their `tt…` id. Others get `musortv:{channel}:{timestamp}:{slug}`, which is visible but not resolvable by stream addons.
+- About 75 % of international films match; Hungarian titles often do not.
+- Schedule maths uses `Europe/Budapest`, including midnight rollover.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      FASTAPI SERVER                              │
-│                        (main.py)                                 │
-│                                                                  │
-│  ┌────────────┐  ┌──────────────┐  ┌──────────────┐           │
-│  │ /manifest  │  │  /catalog    │  │    /meta     │           │
-│  │   .json    │  │  /{type}/{id}│  │  /{type}/{id}│           │
-│  └────────────┘  └──────┬───────┘  └──────┬───────┘           │
-│                          │                  │                   │
-│  ┌──────────────┐       │                  │                   │
-│  │   /healthz   │       │                  │                   │
-│  │  (status)    │       │                  │                   │
-│  └──────────────┘       │                  │                   │
-└─────────────────────────┼──────────────────┼────────────────────┘
-                          │                  │
-                          ▼                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              CATALOG HANDLER          META HANDLER               │
-│           (catalog_handler.py)     (meta_handler.py)             │
-│                                                                  │
-│  1. Parse params (time, search)    1. Parse movie ID            │
-│  2. Check cache                    2. Fetch movie details       │
-│  3. Filter by time window          3. Build rich metadata       │
-│  4. IMDb lookup (TMDB API) ────┐   4. Return meta object        │
-│  5. Transform to Stremio format│                                │
-│  6. Apply search filter        │                                │
-│                                 │                                │
-│  ┌──────────────────┐           └───►┌──────────────────┐      │
-│  │  CACHE LAYER     │                │  IMDb LOOKUP     │      │
-│  │  (cache.py)      │                │  (imdb_lookup.py)│      │
-│  │  TTL: 10 min     │                │  + TMDB API      │      │
-│  └──────────────────┘                │  + Cache (7 days)│      │
-│                                       └──────────────────┘      │
-└──────────┬───────────────────────────────────────────────────────┘
-           │ Cache miss
-           │ fetch_live_movies()
-           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      WEB SCRAPER                                 │
-│                     (scraper.py)                                 │
-│                                                                  │
-│  Rate Limiting: 30s between scrapes                              │
-│  Deduplication: One scrape at a time                             │
-│                                                                  │
-│  ┌──────────────────────┐                                       │
-│  │  httpx + selectolax  │                                       │
-│  │  (HTTP + HTML parser) │                                       │
-│  └──────────┬───────────┘                                       │
-│             │ Fetch + Parse via CSS selectors              │
-└─────────────┼───────────────────────────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      MUSOR.TV WEBSITE                            │
-│              (External Hungarian TV guide)                       │
-│                                                                  │
-│  Pages: /most/tvben, /filmek                                    │
-└─────────────────────────────────────────────────────────────────┘
-```
+Architecture and internals: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-### Core Components
+## Run it yourself
 
-#### 1. **FastAPI Web Server** (`main.py`)
-   - **Role:** HTTP/JSON endpoint provider
-   - **Endpoints:**
-     - `/manifest.json` - Addon identity and capabilities
-     - `/catalog/{type}/{id}.json` - Movie catalog with time/search filters
-     - `/meta/{type}/{id}.json` - Detailed movie metadata
-     - `/healthz` - System health (scraper + IMDb status)
-   - **Note:** NO `/stream` endpoint (catalog-only design)
+Requires Python 3.11+ or Docker. About 256 MB RAM.
 
-#### 2. **Catalog Handler** (`catalog_handler.py`)
-   - **Role:** Business logic orchestrator
-   - **Responsibilities:**
-     - Manage caching strategy (10-min TTL)
-     - Filter by category (movies only, exclude series)
-     - **IMDb lookup integration** (TMDB API)
-     - Transform musor.tv data → Stremio format
-     - Accent-insensitive search (Hungarian)
-     - Success rate tracking (~75% IMDb match rate)
-
-#### 3. **Meta Handler** (`meta_handler.py`)
-   - **Role:** Detailed metadata provider
-   - **Features:**
-     - Rich Hungarian descriptions
-     - Channel + broadcast time display
-     - Poster images from musor.tv
-     - Genre parsing and display
-     - Works with IMDb IDs AND custom IDs
-
-#### 4. **IMDb Lookup Service** (`imdb_lookup.py`)
-   - **Role:** TMDB API integration
-   - **Features:**
-     - Title → IMDb ID matching
-     - Rate limiting (40 req/s, configurable)
-     - Hungarian → English fallback
-     - Batch lookup optimization
-     - Supports API keys + Bearer tokens (JWT)
-     - Graceful degradation on API errors
-
-#### 5. **IMDb Cache Layer** (`imdb_cache.py`)
-   - **Role:** Reduce API calls
-   - **Features:**
-     - 7-day TTL for lookups
-     - Caches successes AND failures
-     - Normalized keys (handles accents)
-     - ~80%+ cache hit rate
-     - Statistics tracking
-
-#### 6. **Web Scraper** (`scraper.py` + `musor_parser.py`)
-   - **Role:** musor.tv data extraction
-   - **Technology:** httpx (async HTTP) + selectolax (HTML parser)
-   - **Features:**
-     - Direct HTTP fetch without browser runtime
-     - Concurrent page scraping with retry and exponential backoff
-     - Rate limiting (30s default)
-     - In-flight deduplication
-     - Robust error recovery
-     - Pure HTML parsing isolated in `musor_parser.py` for testability
-
-#### 7. **Time Window Filter** (`time_window.py`)
-   - **Role:** Time-based filtering
-   - **Presets:**
-     - `now`: Next 90 minutes
-     - `next2h`: Next 2 hours
-     - `tonight`: 18:00-23:59 today
-   - **Smart Features:**
-     - Midnight boundary detection
-     - Timezone-aware (Europe/Budapest)
-
-8. **Caching Layer** (`cache.py`)
-   - TTL-based in-memory cache (default: 10 minutes)
-   - Reduces scraping frequency and improves response times
-   - Uses `cachetools.TTLCache` with max 64 entries
-
-9. **Utilities & Models**
-   - `models.py`: Pydantic data models (`LiveMovieRaw`, `StremioMetaPreview`, `StremioMeta`)
-   - `utils.py`: Text processing (slugify, diacritics removal, film detection)
-   - `manifest.py`: Stremio addon manifest configuration
-
-### Data Flow (Catalog-Only Design)
-
-1. **HTTP Request** arrives at FastAPI server with optional `search` and `time` parameters
-2. **Catalog Handler** checks cache for the requested time preset
-3. **Cache Miss** → Scraper fetches live data from musor.tv using plain HTTP (httpx)
-4. **Raw Data** is filtered by:
-   - Category (must be a film, not a series)
-   - Time window (must fall within selected time range)
-5. **IMDb Lookup**:
-   - Extract year from category when available
-   - Query TMDB API with title and year
-   - Cache result (success or failure) for 7 days
-   - Use IMDb ID if found, fall back to custom ID
-6. **Transformation** to Stremio format with metadata:
-   - **Unique ID:** IMDb ID (e.g., `tt0133093`) ← **Stream addons recognize this!**
-   - Fallback ID: `musortv:{channel}:{timestamp}:{title-slug}` (for unmatched movies)
-   - Release info formatting: `"21:00 • RTL"`
-   - Genre mapping (Hungarian → standardized)
-   - Enhanced descriptions with channel and time info
-7. **Caching** of transformed results with TTL (10 minutes)
-8. **Search Filter** applied if provided (accent-insensitive)
-9. **JSON Response** returned to Stremio client
-10. **Stream Addons Take Over** - Torrentio/MediaFusion see IMDb IDs and provide streams ✅
-
-## 📁 Project Structure
-
-```
-stremio-musor_tv/
-├── src/                     # Main application code
-│   ├── main.py              # FastAPI server entry point
-│   ├── manifest.py          # Stremio addon manifest (catalog + meta only)
-│   ├── catalog_handler.py   # Catalog business logic & orchestration
-│   ├── meta_handler.py      # Meta endpoint handler
-│   ├── scraper.py           # httpx scraper (orchestration + retry)
-│   ├── musor_parser.py      # Pure HTML parser (selectolax)
-│   ├── imdb_lookup.py       # TMDB API integration
-│   ├── imdb_cache.py        # IMDb lookup caching
-│   ├── time_window.py       # Time filtering logic
-│   ├── cache.py             # TTL cache wrapper
-│   ├── utils.py             # Text utilities (slugify, diacritics)
-│   ├── models.py            # Pydantic data models
-│   └── __init__.py          # Package marker
-├── tests/                   # Unit tests
-│   ├── test_imdb_lookup.py  # IMDb lookup tests
-│   ├── test_scraper_refactor.py
-│   ├── test_stream_support.py
-│   └── test_midnight_boundary.py
-├── docs/                    # Documentation
-│   ├── IMDB_LOOKUP_SPEC.md  # IMDb feature specification
-│   ├── META_ENDPOINT_IMPLEMENTATION.md  # Meta endpoint docs
-│   ├── CATALOG_ONLY_DESIGN.md
-│   ├── Midnight_Boundary_Fix_SUMMARY.md
-│   └── ...
-├── debug/                   # Debug scripts
-├── .env.example             # Environment variable template
-├── requirements.txt         # Python dependencies
-├── Dockerfile               # Container image definition
-├── docker-compose.yml       # Docker Compose configuration
-└── README.md                # This file
-```
-
-## 🚀 Quick Start
-
-### Dependencies
-
-**Core Stack:**
-- Python 3.11+
-- FastAPI 0.115.0 (async web framework)
-- Uvicorn 0.30.6 (ASGI server)
-- Pydantic 2.9.2 (data validation & serialization)
-
-**Scraping & Parsing:**
-- httpx 0.27.2 (async HTTP client for musor.tv fetches)
-- selectolax 0.3.21 (fast CSS selector HTML parser)
-- cachetools 5.5.0 (TTL cache implementation)
-- python-dotenv 1.0.1 (environment configuration)
-
-**IMDb Integration:** (**NEW**)
-- aiohttp 3.9.5 (async HTTP client for TMDB API)
-- TMDB API (for IMDb ID lookups)
-
-**Testing:** (**NEW**)
-- pytest 7.4.3 (unit testing framework)
-- pytest-asyncio 0.21.1 (async test support)
-- pytest-cov 4.1.0 (code coverage)
-
-**Deployment:**
-- Docker + Docker Compose
-
-### Prerequisites
-
-- Python 3.11 or higher
-- pip (Python package manager)
-- ~256 MB RAM (no browser runtime required)
-
-### Local Development
+### Docker
 
 ```bash
-# Python environment setup
-pyenv virtualenv 3.11 stremio-musor-tv
-pyenv local stremio-musor-tv
-pyenv activate stremio-musor-tv
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-cd src
-python main.py
-```
-
-The addon will be available at `http://localhost:7000`
-
-### Docker Deployment (Recommended)
-
-```bash
-# Build and run with Docker Compose
-docker-compose up --build
-
-# Or run in detached mode
-docker-compose up -d
-
-# View logs
-docker-compose logs -f | ccze -m ansi
-
-# Stop
-docker-compose down
-```
-
-The containerized addon will be available at `http://localhost:7000`
-
-### Cloud Deployment
-
-#### Render
-
-For production deployment on Render.com:
-
-Quick steps:
-1. Push repository to GitHub/GitLab
-2. Connect to Render Blueprint
-3. Render auto-detects `render.yaml` and builds Docker image
-4. Your addon will be at: `https://your-app.onrender.com`
-
-**Note:** Make sure Render is configured to use **Docker runtime** (not Python) for consistent builds.
-
-**Configuration:**
-- Render uses the `render.yaml` blueprint in the repository
-- Automatically provisions a Docker-based web service
-- Environment variables can be set in the Render dashboard
-- Free tier available with 750 hours/month
-
-#### Railway
-
-For deployment on Railway.app:
-
-Quick steps:
-1. Push repository to GitHub
-2. Create new project on [Railway](https://railway.app)
-3. Connect your GitHub repository
-4. Railway auto-detects `Dockerfile` and builds the image
-5. Set environment variables in Railway dashboard:
-   - `TZ=Europe/Budapest`
-   - `PORT=7000` (or use Railway's auto-assigned port)
-   - `CACHE_TTL_MIN=10`
-   - `SCRAPE_RATE_MS=30000`
-6. Your addon will be at: `https://your-app.railway.app`
-
-**Configuration:**
-- Railway automatically detects and builds Docker projects
-- Uses `Dockerfile` in the repository root
-- Free tier includes $5 of usage per month
-- Easy environment variable management through dashboard
-- Automatic HTTPS with custom domains supported
-
-**Tips for Railway:**
-- Let Railway assign the PORT (use `$PORT` environment variable)
-- Monitor resource usage (lightweight: ~64–128 MB RAM typical)
-- Consider upgrading to paid plan for production use
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-All configuration is done via environment variables:
-
-#### Core Settings
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `PORT` | HTTP server port | `7000` | No |
-| `LOG_LEVEL` | Logging verbosity (`debug`/`info`/`warning`/`error`) | `info` | No |
-| `CACHE_TTL_MIN` | Cache TTL in minutes | `10` | No |
-| `SCRAPE_RATE_MS` | Minimum milliseconds between scrapes | `30000` | No |
-| `TZ` | Timezone (MUST be `Europe/Budapest` for correct times) | - | **Yes** |
-
-#### IMDb Lookup Settings (**NEW**)
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `TMDB_API_KEY` | TMDB API key or Bearer token (JWT) for IMDb lookups | - | No* |
-| `IMDB_LOOKUP_ENABLED` | Enable/disable IMDb ID lookup | `true` | No |
-| `IMDB_CACHE_TTL_DAYS` | IMDb lookup cache TTL in days | `7` | No |
-| `IMDB_RATE_LIMIT_PER_SEC` | Max TMDB API requests per second | `40` | No |
-
-**\*Optional but highly recommended** for better stream provider integration.
-
-**Getting a TMDB API Key (Free):**
-1. Sign up at https://www.themoviedb.org/signup
-2. Go to https://www.themoviedb.org/settings/api
-3. Request an API key (instant approval for free tier)
-4. Copy either:
-   - **API Key (v3 auth)** - 32-character hex string (simpler)
-   - **Bearer Token (JWT)** - Long `eyJ...` string (also supported)
-5. Add to `.env` file: `TMDB_API_KEY=your_key_here`
-
-**Benefits of IMDb Lookup:**
-- Stream providers (Torrentio, etc.) can match movies by IMDb ID
-- ~75% success rate for international movies
-- Falls back to custom IDs when no match found
-- Addon works perfectly fine without it
-
-### Configuration in Docker
-
-Edit `docker-compose.yml`:
-
-```yaml
-environment:
-  - TZ=Europe/Budapest
-  - PORT=7000
-  - CACHE_TTL_MIN=15
-  - SCRAPE_RATE_MS=45000
-  - LOG_LEVEL=debug
-  # IMDb lookup (optional)
-  - TMDB_API_KEY=your_api_key_here
-  - IMDB_LOOKUP_ENABLED=true
-```
-
-Or use a `.env` file (recommended for secrets):
-
-```bash
-# Copy example
 cp .env.example .env
-
-# Edit .env and add your TMDB_API_KEY
-# Then docker-compose will automatically load it
+docker compose up --build -d
 ```
 
-### Configuration for Local Development
-
-Create a `.env` file in the project root:
+Or use the published image:
 
 ```bash
-PORT=7000
-LOG_LEVEL=info
-CACHE_TTL_MIN=10
-SCRAPE_RATE_MS=30000
-TZ=Europe/Budapest
-
-# IMDb lookup (optional but recommended)
-TMDB_API_KEY=your_api_key_or_bearer_token_here
-IMDB_LOOKUP_ENABLED=true
-IMDB_CACHE_TTL_DAYS=7
+docker run -d -p 7000:7000 -e TZ=Europe/Budapest ghcr.io/radamhu/stremio-musor-tv:latest
 ```
 
-## 🔍 API Endpoints
+### Python
 
-### Stremio Protocol Endpoints
-
-#### `GET /manifest.json`
-Returns the Stremio addon manifest.
-
-**Response:**
-```json
-{
-  "id": "hu.live.movies",
-  "version": "1.0.0",
-  "name": "HU Live Movies (musor.tv)",
-  "description": "Discover movies on Hungarian TV • Works with your stream addons",
-  "resources": ["catalog", "meta", "stream"],
-  "types": ["movie"],
-  "catalogs": [...]
-}
-```
-
-#### `GET /catalog/movie/hu-live.json`
-Returns the catalog of live movies.
-
-**Query Parameters:**
-- `search` (optional): Filter by title (accent-insensitive)
-  - Example: `?search=matrix` matches "Mátrix"
-- `time` (optional): Time filter preset
-  - `now` (default): Movies in next 90 minutes
-  - `next2h`: Movies in next 2 hours
-  - `tonight`: Movies from 18:00 to 23:59 today
-
-**Examples:**
 ```bash
-# All movies airing now
-curl http://localhost:7000/catalog/movie/hu-live.json
-
-# Movies in next 2 hours
-curl http://localhost:7000/catalog/movie/hu-live.json?time=next2h
-
-# Search for specific movie
-curl http://localhost:7000/catalog/movie/hu-live.json?search=matrix
-
-# Tonight's movies
-curl http://localhost:7000/catalog/movie/hu-live.json?time=tonight
+pip install -r requirements.txt
+cp .env.example .env
+cd src && python main.py
 ```
 
-**Response Format:**
+The addon is at `http://localhost:7000/manifest.json`.
+
+### Render
+
+`render.yaml` is a Docker-runtime blueprint. Connect the repository to Render, set `TMDB_API_KEY` as a secret, deploy.
+
+## Configuration
+
+Environment variables only. `.env` is for local development.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `TZ` | Must be `Europe/Budapest` | none (required) |
+| `PORT` | HTTP port | `7000` |
+| `LOG_LEVEL` | `debug`, `info`, `warning`, `error` | `info` |
+| `CACHE_TTL_MIN` | Catalog cache TTL in minutes | `10` |
+| `SCRAPE_RATE_MS` | Minimum ms between scrapes | `30000` |
+| `TMDB_API_KEY` | TMDB v3 key or Bearer token; enables IMDb ids | unset |
+| `IMDB_LOOKUP_ENABLED` | Toggle IMDb lookup | `true` |
+| `IMDB_CACHE_TTL_DAYS` | IMDb cache TTL in days | `7` |
+| `IMDB_RATE_LIMIT_PER_SEC` | Max TMDB requests per second | `40` |
+| `DISCORD_WEBHOOK_URL` | Optional runtime webhook | unset |
+
+A free TMDB key comes from <https://www.themoviedb.org/settings/api>. The addon works without one, but stream addons will not match titles.
+
+## API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /manifest.json` | Addon manifest |
+| `GET /catalog/movie/hu-live.json` | Movie catalog |
+| `GET /meta/movie/{id}.json` | Details for an IMDb or `musortv:` id |
+| `GET /healthz` | Scraper and IMDb status |
+| `GET /` | Landing page with install link |
+
+Catalog query parameters (also accepted as Stremio extra path segments):
+
+| Parameter | Values |
+| --- | --- |
+| `time` | `now` (default, next 90 min), `next2h`, `tonight` (18:00 to 23:59) |
+| `search` | Title filter, accent-insensitive |
+
+```bash
+curl "http://localhost:7000/catalog/movie/hu-live.json?time=tonight&search=matrix"
+```
+
 ```json
 {
   "metas": [
@@ -581,372 +158,55 @@ curl http://localhost:7000/catalog/movie/hu-live.json?time=tonight
       "name": "Mátrix",
       "release_info": "21:00 • RTL",
       "poster": "https://musor.tv/img/small/...",
-      "genres": ["Sci-Fi", "Akció"],
+      "genres": ["Akció"],
       "description": "📺 RTL • 21:00 • amerikai sci-fi akciófilm,1999"
     }
   ]
 }
 ```
 
-**Note:** Movies with IMDb matches use IMDb IDs (e.g., `tt0133093`), others use custom format: `musortv:channel:timestamp:title-slug`
-
-#### `GET /meta/movie/{id}.json` (**NEW**)
-Returns detailed metadata for a specific movie.
-
-**Parameters:**
-- `{id}`: Movie ID (IMDb ID like `tt0133093` or custom `musortv:...` ID)
-
-**Example:**
 ```bash
-# Get details for The Matrix
 curl http://localhost:7000/meta/movie/tt0133093.json
-
-# Get details with custom ID
-curl http://localhost:7000/meta/movie/musortv:rtl:1697654400:matrix.json
 ```
 
-**Response:**
-```json
-{
-  "meta": {
-    "id": "tt0133093",
-    "type": "movie",
-    "name": "Mátrix",
-    "poster": "https://musor.tv/img/small/...",
-    "background": "https://musor.tv/img/small/...",
-    "genres": ["Sci-Fi"],
-    "description": "📺 **Csatorna:** RTL\n🕐 **Kezdés:** 2025.10.25 21:00\n🎬 **Műfaj:** amerikai sci-fi akciófilm,1999\n\n📡 **Élő adás a magyar TV-ből**\n\n💡 *Tipp: Használj stream kiegészítőt (pl. Torrentio) a megtekintéshez*",
-    "releaseInfo": "📅 2025.10.25 • 21:00"
-  }
-}
-```
+Responses are a public contract; changes are additive unless documented otherwise. The manifest declares only `catalog` and `meta`.
 
-#### `GET /stream/movie/{id}.json`
-Returns empty streams array (catalog-only addon).
-
-**Response:**
-```json
-{
-  "streams": []
-}
-```
-
-**Note:** This addon discovers content but doesn't provide streams. Install separate stream provider addons (Torrentio, etc.) for playback.
-
-#### `GET /healthz`
-Health check endpoint with system status.
-
-**Response:**
-```json
-{
-  "ok": true,
-  "ts": 1761423802441,
-  "scraper": {
-    "healthy": true,
-    "last_success_at": 22525.902,
-    "total_errors": 0,
-    "initialized": true
-  },
-  "imdb_lookup": {
-    "enabled": true,
-    "api_key_configured": true,
-    "rate_limit": 40,
-    "cache": {
-      "size": 17,
-      "maxsize": 1000,
-      "ttl_days": 7
-    }
-  }
-}
-```
-
-# Search for specific title
-curl http://localhost:7000/catalog/movie/hu-live.json?search=james+bond
-
-# Combined search and time filter
-curl http://localhost:7000/catalog/movie/hu-live.json?time=tonight&search=horror
-```
-
-**Response:**
-```json
-{
-  "metas": [
-    {
-      "id": "musortv:rtl:1697654400:matrix",
-      "type": "movie",
-      "name": "Mátrix",
-      "release_info": "21:00 • RTL",
-      "poster": "https://musor.tv/...",
-      "genres": ["Akció"]
-    }
-  ]
-}
-```
-
-
-## 🤝 Stremio Integration
-
-### Installing the Addon
-
-1. Run the addon server (locally or via Docker)
-2. Open Stremio
-3. Go to Addons → Community Addons
-4. Click "Install from URL"
-5. Enter: `http://localhost:7000/manifest.json`
-6. The addon will appear in your Discover catalog
-
-### Usage in Stremio
-
-- Navigate to **Movies** in Stremio
-- Find the **"Live on TV (HU)"** catalog
-- Browse current and upcoming Hungarian TV movies
-- Use search to find specific titles
-- Filter by time: "Now", "Next 2 Hours", "Tonight"
-- Click on a movie to see detailed information
-- **With IMDb integration:** Stream providers (Torrentio, etc.) will automatically offer torrents/streams
-
-### How It Works with Stream Providers
-
-**Without IMDb Lookup:**
-```
-1. You browse catalog → See "Mátrix on RTL at 21:00"
-2. You click movie → ID: musortv:rtl:1697654400:matrix
-3. Torrentio searches → ❌ Can't match (unknown ID format)
-4. No streams available
-```
-
-**With IMDb Lookup (Recommended):**
-```
-1. You browse catalog → See "Mátrix on RTL at 21:00"
-2. Behind the scenes → IMDb ID lookup: tt0133093
-3. You click movie → ID: tt0133093
-4. Torrentio recognizes → ✅ Provides torrents for The Matrix
-5. You can watch! 🎬
-```
-
-**Success Rate:** ~75% of international movies get IMDb matches. Hungarian/regional films fall back to custom IDs (still visible, just no automatic stream matching).
-
-## 🧪 Testing
-
-### Running Tests
+## Testing
 
 ```bash
-# Install test dependencies
 pip install -r requirements.txt
-
-# Run all tests (deterministic, no network access required)
 python -m pytest tests/ -q --ignore=tests/test_stream_support.py --ignore=tests/test_stream_endpoint.py
-
-# Core scraper/parser/time tests
-python -m pytest tests/test_musor_parser.py tests/test_scraper_refactor.py tests/test_midnight_boundary.py -q
-
-# Contract tests only
-python -m pytest tests/test_contracts.py -q
-
-# Run a specific test file verbosely
-python -m pytest tests/test_imdb_lookup.py -v
-
-# Run with coverage
-python -m pytest tests/ --cov=src --cov-report=html --ignore=tests/test_stream_support.py
-
-# View coverage report
-open htmlcov/index.html
 ```
 
-> **Note:** `tests/test_stream_support.py` and `tests/test_stream_endpoint.py` have unresolved
-> import dependencies and must be excluded until those modules are implemented.
+Tests run offline against HTML fixtures and mocks. More commands and coverage areas: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#local-setup-and-tests).
 
-### Test Coverage
+## Documentation
 
-- ✅ IMDb lookup functionality (`test_imdb_lookup.py`)
-- ✅ Caching behavior (both catalog and IMDb)
-- ✅ API error handling and fallbacks
-- ✅ Hungarian title normalization
-- ✅ Midnight boundary calculations (`test_midnight_boundary.py`)
-- ✅ Scraper lifecycle and retry behavior (`test_scraper_refactor.py`)
-- ✅ HTML parser field extraction and resilience (`test_musor_parser.py`)
-- ✅ Catalog and meta contract shapes (`test_contracts.py`)
-- ✅ Graceful degradation on scraper and lookup failures (`test_contracts.py`)
+| Document | Content |
+| --- | --- |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Architecture, scraper and selectors, fixtures, CI/CD, migration notes, troubleshooting |
+| [AGENTS.md](AGENTS.md) | Repo invariants for humans and AI agents |
+| [SKILL.md](SKILL.md) | Recurring repo workflows |
 
-## 🔗 Related Documentation
+## Contributing
 
-### Core Documentation
-- [IMDb Lookup Specification](docs/IMDB_LOOKUP_SPEC.md) - Complete IMDb integration design
-- [Meta Endpoint Implementation](docs/META_ENDPOINT_IMPLEMENTATION.md) - Detailed movie info endpoint
-- [Catalog-Only Design](docs/CATALOG_ONLY_DESIGN.md) - Architecture philosophy
-- [Midnight Boundary Fix](docs/Midnight_Boundary_Fix_SUMMARY.md) - Time calculation improvements
+1. Fork, branch, make the change with tests.
+2. Run the test suite above.
+3. Open a pull request. Read [AGENTS.md](AGENTS.md) first: catalog-only scope, no new datastore or framework without an ADR, no silent contract changes.
 
-### Development Guides
-- [Copilot Instructions](.github/instructions/copilot-instructions.md) - Development guidelines
-- [Code Analysis Prompt](docs/CODE_ANALYSIS_PROMPT.md) - Analysis methodology
-- [Scraper Refactor Summary](docs/SCRAPER_REFACTOR_SUMMARY.md) - Lightweight scraper architecture, selector reference, fixture maintenance
-- [Lightweight Scraper Refactor Plan](docs/LIGHTWEIGHT_SCRAPER_REFACTOR_PLAN.md) - Full refactor plan with phase results
+Scraper selector breakage is the most common issue; see [fixture maintenance](docs/DEVELOPMENT.md#parser-fixture-maintenance).
 
-## 🔧 Troubleshooting
+## Roadmap
 
-### Catalog returns empty results
-
-1. Check `/healthz` — if `scraper.healthy` is `false`, the last scrape failed.
-2. Run `python debug/debug_selectors_v2.py` to verify CSS selectors still match live HTML.
-3. If selectors return 0 matches, musor.tv HTML structure may have changed — see
-   [Scraper Refactor Summary — Parser Fixture Maintenance](docs/SCRAPER_REFACTOR_SUMMARY.md#parser-fixture-maintenance).
-4. Check logs for `[scraper]` lines: distinguish `transport failure` (network) from
-   `parse failure` (selector drift).
-
-### Scraper reports errors on startup
-
-The scraper initialises lazily — it does not fetch on startup. The first error will appear
-after the first catalog request arrives. Check:
-- Network connectivity from the container to `musor.tv`
-- Whether `musor.tv` is returning HTTP 200 (`python debug/dump_html.py` writes to `/tmp/`)
-- Whether the `User-Agent` header is being blocked (check response status in logs)
-
-### IMDb IDs not appearing in catalog
-
-- Confirm `IMDB_LOOKUP_ENABLED=true` in environment.
-- Confirm `TMDB_API_KEY` is set and valid.
-- Check `/healthz` → `imdb_lookup.api_key_configured` must be `true`.
-- The cache is cold on first run; after a few catalog requests the hit rate climbs.
-
-### Docker container exits immediately
-
-- Check `docker logs <container>` — startup errors log to stderr.
-- Confirm `TZ=Europe/Budapest` is set; the time-window logic requires this.
-- Confirm `PORT` matches the published port mapping.
-
-### Tests fail with import errors on `stream_handler`
-
-`tests/test_stream_support.py` imports a module that does not yet exist. Exclude it:
-
-```bash
-python -m pytest tests/ -q --ignore=tests/test_stream_support.py
-```
-
-### Selector drift (musor.tv HTML changed)
-
-See [Parser Fixture Maintenance](docs/SCRAPER_REFACTOR_SUMMARY.md#parser-fixture-maintenance)
-for the step-by-step diagnosis checklist.
-
----
-
-## 📦 Migrating from the Playwright Build
-
-The Playwright-based scraper was removed in April 2026. If you are upgrading from an older
-image:
-
-### What changed
-
-| Area | Before | After |
-|------|--------|-------|
-| Scraper | Playwright + Chromium headless browser | `httpx` HTTP client + `selectolax` HTML parser |
-| Image size | ~1.18 GB | ~221 MB |
-| Startup RAM | ~400–800 MB | ~62 MB |
-| `requirements.txt` | `playwright==1.47.0` | `httpx==0.27.2`, `selectolax==0.3.21` |
-| Dockerfile | Multi-stage, installs Chromium | Single-stage `python:3.11-slim` |
-| Env vars removed | `PLAYWRIGHT_BROWSERS_PATH`, `NODE_OPTIONS` | — |
-
-### Migration steps
-
-1. **Pull the latest image** or rebuild from source — no code changes needed on your part.
-2. **Remove Playwright env vars** from your deployment if you set them manually:
-   - `PLAYWRIGHT_BROWSERS_PATH`
-   - `NODE_OPTIONS`
-3. **Reduce memory limits** — `256M` is sufficient; `1G` is no longer required.
-4. **All other environment variables are unchanged** — `TZ`, `PORT`, `CACHE_TTL_MIN`,
-   `SCRAPE_RATE_MS`, `TMDB_API_KEY`, and all `IMDB_*` vars work exactly as before.
-5. **No endpoint or response format changes** — existing Stremio installs continue to work.
-
-### Rollback
-
-If you need to return to the Playwright build:
-1. Identify the last Playwright commit in your history:
-   ```bash
-   git log --oneline --all -- requirements.txt | grep -i playwright
-   ```
-2. Check out that commit or create a `rollback/playwright` branch.
-3. Raise memory limits back to `1G` in docker-compose / Render / Railway.
-
----
-
-## GitHub Notifications
-
-GitHub Actions can post CI and Dependabot automation status to Discord.
-
-Configure this as a GitHub repository secret:
-1. Open `Settings -> Secrets and variables -> Actions`
-2. Add `DISCORD_WEBHOOK_URL`
-
-Current notification behavior:
-- `CI` sends a Discord summary for non-PR workflow runs
-- `Dependabot Auto Merge` sends a Discord summary when a Dependabot PR is eligible for auto-merge, fails in the auto-merge flow, or is skipped
-
----
-
-## 🎯 Roadmap
-
-### Completed ✅
-- [x] Basic catalog functionality
-- [x] Time window filtering (now/next2h/tonight)
-- [x] Accent-insensitive search
-- [x] Midnight boundary fix
-- [x] Meta endpoint for detailed movie info
-- [x] IMDb ID lookup integration
-- [x] TMDB API Bearer token support
-- [x] Comprehensive test coverage
-- [x] Lightweight HTTP scraper (httpx + selectolax, no browser runtime)
-- [x] Catalog-only architecture (stream addons handle playback)
-
-### Planned Features
-- [ ] Additional TMDB metadata (ratings, cast, plot)
+- [ ] Extra TMDB metadata (ratings, cast, plot)
 - [ ] Year extraction from more category formats
-- [ ] Manual IMDb ID overrides/corrections
-- [ ] Performance optimization for batch lookups
-- [ ] Series/TV show support
-- [ ] Alternative time presets (weekend, week ahead)
-- [ ] Multi-language support (English interface option)
+- [ ] Manual IMDb id overrides
+- [ ] Series support
+- [ ] More time presets (weekend, week ahead)
+- [ ] English interface option
 
-## 📄 License
+## License
 
-This project is licensed under the **MIT License** - see below for details.
+[MIT](https://opensource.org/licenses/MIT), copyright (c) 2025 radamhu.
 
-### MIT License
-
-```
-MIT License
-
-Copyright (c) 2025 radamhu
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### Third-Party Licenses
-
-This project uses the following open-source libraries:
-- **FastAPI** - MIT License
-- **httpx** - BSD License
-- **selectolax** - MIT License
-- **Pydantic** - MIT License
-- **Uvicorn** - BSD License
-- **aiohttp** - Apache License 2.0
-
-For complete dependency licenses, see `requirements.txt` and individual package documentation.
-
----
-
-**Made with ❤️ for the Hungarian Stremio community**
+Built on FastAPI (MIT), httpx (BSD), selectolax (MIT), Pydantic (MIT), Uvicorn (BSD), aiohttp (Apache 2.0). Listings courtesy of [musor.tv](https://musor.tv); not affiliated with Stremio or musor.tv.

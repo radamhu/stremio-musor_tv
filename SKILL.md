@@ -197,7 +197,7 @@ When musor.tv changes its page structure and scraper tests break:
    r = httpx.get("https://musor.tv/filmek", headers=headers)
    pathlib.Path("tests/fixtures/musor_filmek.html").write_text(r.text)
    ```
-2. Inspect the new HTML for selector changes using `debug/debug_selectors_v2.py`.
+2. Check which selectors still match: `python -m pytest tests/test_live_selectors.py --live -q -s`.
 3. Update selectors in `src/musor_parser.py` with documented comments explaining the structure.
 4. Update `tests/fixtures/musor_filmek_sample.html` to a current 5-entry excerpt.
 5. Run `python -m pytest tests/test_musor_parser.py -q` to confirm.
@@ -208,17 +208,16 @@ If that selector disappears, stop and inspect the new HTML before guessing alter
 
 ---
 
-## 6. Debug Script Inventory
+## 6. Live Selector Check
 
-All scripts in `debug/` use `httpx` + `selectolax` — no browser required.
+`tests/test_live_selectors.py` hits live musor.tv with `httpx` + `selectolax` (no browser).
+Marked `live`; skipped by default, run with `--live`. Transport failures skip, 0 matches fail.
 
-| Script | Purpose | Run command |
-| ------ | ------- | ----------- |
-| `debug_selectors.py` | Count CSS selector hits on live pages; confirm selectors still work | `python debug/debug_selectors.py` |
-| `debug_selectors_v2.py` | Inspect filmek table entries and BroadcastEvent entries on both pages | `python debug/debug_selectors_v2.py` |
-| `dump_html.py` | Fetch live pages and save full HTML to `/tmp/` for offline inspection | `python debug/dump_html.py` |
-| `demo_midnight_fix.py` | Demonstrate midnight boundary detection scenarios | `python debug/demo_midnight_fix.py` |
-| `validate_stream_endpoint.py` | Smoke-test running server endpoints via stdlib HTTP | `python debug/validate_stream_endpoint.py [BASE_URL]` |
+```bash
+python -m pytest tests/test_live_selectors.py --live -q -s
+```
+
+Midnight-boundary and stream endpoint behavior are covered by `tests/test_midnight_boundary.py` and `tests/test_stream_endpoint.py`.
 
 ---
 
@@ -244,7 +243,7 @@ rollback to the pre-lightweight build is required.
 
 **Before rolling back** — confirm the failure mode:
 
-1. `python debug/debug_selectors_v2.py` — check if selectors still match live musor.tv HTML.
+1. `python -m pytest tests/test_live_selectors.py --live -q -s` — check if selectors still match live musor.tv HTML.
 2. `python -m pytest tests/test_musor_parser.py -q` — confirm fixtures still pass.
 3. If only selectors drifted: update `src/musor_parser.py` + fixture, no rollback needed.
 
