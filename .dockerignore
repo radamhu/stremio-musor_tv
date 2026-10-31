@@ -28,7 +28,6 @@ coverage.xml
 *.cover
 
 # Debug files
-debug/
 *.log
 
 # Development tools

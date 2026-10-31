@@ -73,3 +73,7 @@ docker-compose.override.yml
 # Misc
 *.pem
 *.key
+
+# Agent shared memory
+.agent-notes.md
+graphify-out/
