@@ -68,12 +68,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fetch Dependabot metadata
+      # dependabot/fetch-metadata reads the pull_request event payload, which a
+      # workflow_run trigger does not have. Derive the update type from the PR
+      # title ("bump X from A to B") instead. Anything unparseable (groups,
+      # non-numeric versions) is reported as unknown and skipped.
+      # 0.x minor bumps count as major: semver allows breaking changes there.
+      - name: Determine update type
         id: metadata
-        uses: dependabot/fetch-metadata@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ needs.prepare.outputs.pr_number }}
+        env:
+          PR_TITLE: ${{ needs.prepare.outputs.pr_title }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          import re
+
+          title = os.environ["PR_TITLE"]
+          match = re.search(r" from (\S+) to (\S+)$", title)
+          update_type = "unknown"
+          if match:
+              old, new = (
+                  [int(n) for n in re.findall(r"\d+", v)][:3] for v in match.groups()
+              )
+              old += [0] * (3 - len(old))
+              new += [0] * (3 - len(new))
+              if old[0] != new[0] or (old[0] == 0 and old[1] != new[1]):
+                  update_type = "version-update:semver-major"
+              elif old[1] != new[1]:
+                  update_type = "version-update:semver-minor"
+              elif old[2] != new[2]:
+                  update_type = "version-update:semver-patch"
+          print(f"update-type={update_type}")
+          PY
 
       - name: Approve eligible Dependabot updates
         if: |
@@ -99,7 +124,7 @@ jobs:
         if: |
           steps.metadata.outputs.update-type != 'version-update:semver-patch' &&
           steps.metadata.outputs.update-type != 'version-update:semver-minor'
-        run: echo "Skipping auto-merge for update type: ${{ steps.metadata.outputs.update-type }}"
+        run: 'echo "Skipping auto-merge for update type: ${{ steps.metadata.outputs.update-type }}"'
 
   notify-discord:
     name: Notify Discord
