@@ -99,7 +99,7 @@ jobs:
         if: |
           steps.metadata.outputs.update-type != 'version-update:semver-patch' &&
           steps.metadata.outputs.update-type != 'version-update:semver-minor'
-        run: echo "Skipping auto-merge for update type: ${{ steps.metadata.outputs.update-type }}"
+        run: 'echo "Skipping auto-merge for update type: ${{ steps.metadata.outputs.update-type }}"'
 
   notify-discord:
     name: Notify Discord
