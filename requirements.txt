@@ -1,6 +1,6 @@
 # Python dependencies for Stremio HU Live Movies addon
 fastapi==0.115.0
-uvicorn[standard]==0.30.6
+uvicorn[standard]==0.54.0
 httpx==0.28.1
 cachetools==5.5.0
 pydantic==2.14.1
